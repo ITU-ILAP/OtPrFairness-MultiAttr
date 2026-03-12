@@ -1,0 +1,14 @@
+# FairPO experiments - BiasedMF on Insurance dataset
+# Same settings as other frameworks for fair comparison
+
+# u_activity
+python ./main.py --model_name BiasedMF --fairness_framework FairPO --optimizer Adam --dataset insurance --feature_columns u_activity --data_processor RecDataset --metric ndcg@3,f1@3 --l2 1e-4 --lr 1e-3 --batch_size 1024 --model_path "../model/BiasedMF_FairPO_insurance_u_activity_neg_sample=10/BiasedMF_FairPO_insurance_u_activity_l2=1e-4_dim=64_neg_sample=10.pt" --runner RecRunner --vt_num_neg 10 --vt_batch_size 1024 --num_worker 0 --epoch 1000 --eval_disc --fairpo_alpha 1.0 --fairpo_beta 1.0
+
+# u_marital_status
+python ./main.py --model_name BiasedMF --fairness_framework FairPO --optimizer Adam --dataset insurance --feature_columns u_marital_status --data_processor RecDataset --metric ndcg@3,f1@3 --l2 1e-4 --lr 1e-3 --batch_size 1024 --model_path "../model/BiasedMF_FairPO_insurance_u_marital_status_neg_sample=10/BiasedMF_FairPO_insurance_u_marital_status_l2=1e-4_dim=64_neg_sample=10.pt" --runner RecRunner --vt_num_neg 10 --vt_batch_size 1024 --num_worker 0 --epoch 1000 --eval_disc --fairpo_alpha 1.0 --fairpo_beta 1.0
+
+# u_occupation
+python ./main.py --model_name BiasedMF --fairness_framework FairPO --optimizer Adam --dataset insurance --feature_columns u_occupation --data_processor RecDataset --metric ndcg@3,f1@3 --l2 1e-4 --lr 1e-3 --batch_size 1024 --model_path "../model/BiasedMF_FairPO_insurance_u_occupation_neg_sample=10/BiasedMF_FairPO_insurance_u_occupation_l2=1e-4_dim=64_neg_sample=10.pt" --runner RecRunner --vt_num_neg 10 --vt_batch_size 1024 --num_worker 0 --epoch 1000 --eval_disc --fairpo_alpha 1.0 --fairpo_beta 1.0
+
+# u_gender
+python ./main.py --model_name BiasedMF --fairness_framework FairPO --optimizer Adam --dataset insurance --feature_columns u_gender --data_processor RecDataset --metric ndcg@3,f1@3 --l2 1e-4 --lr 1e-3 --batch_size 1024 --model_path "../model/BiasedMF_FairPO_insurance_u_gender_neg_sample=10/BiasedMF_FairPO_insurance_u_gender_l2=1e-4_dim=64_neg_sample=10.pt" --runner RecRunner --vt_num_neg 10 --vt_batch_size 1024 --num_worker 0 --epoch 1000 --eval_disc --fairpo_alpha 1.0 --fairpo_beta 1.0

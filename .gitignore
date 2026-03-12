@@ -1,0 +1,38 @@
+# Trained model checkpoints and logs (can be reproduced by running the code)
+model/
+log/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Results (generated output)
+result/
+results/
+.claude/
+
+# All raw dataset files — download instructions are in dataset/README.md
+# Users must download the datasets separately (same convention as the original repo).
+dataset/**/*.pkl
+dataset/**/*.tsv
+dataset/**/*.attacker.*
