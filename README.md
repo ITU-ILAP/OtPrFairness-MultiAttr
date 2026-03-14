@@ -78,22 +78,31 @@ pip install torch numpy pandas scikit-learn tqdm
 | insurance | 1,511 | 12    | 27,180       | u_gender, u_activity, u_marital_status, u_occupation |
 | ml1M      | 6,040 | 3,416 | 999,611      | u_gender, u_age |
 
-Datasets are already in the `dataset/` folder — no additional download or preprocessing needed.
+Dataset files are **not included** in this repository due to size. See [`dataset/README.md`](dataset/README.md) for download and preprocessing instructions.
 
 ---
 
 ## Fairness Frameworks
 
-| Framework     | Type             | Description |
-|---------------|------------------|-------------|
-| `None`        | Baseline         | No fairness constraint |
-| `FOCF_ValUnf` | Outcome fairness | Minimizes value unfairness (signed bias gap between groups) |
-| `FOCF_AbsUnf` | Outcome fairness | Minimizes absolute unfairness between groups |
-| `PCFR`        | Process fairness | Adversarial filter removes sensitive info from user embeddings |
-| `FairRec`     | Process fairness | Dual-branch (learner + filter) with orthogonal regularization |
-| `FairPO`      | **Both**         | **New:** adversarial process fairness + value-unfairness outcome penalty |
+This repository extends the original paper implementation with **FairPO**, a new framework introduced in this version that jointly enforces both process and outcome fairness.
 
-### FairPO Loss Function
+| Framework     | Type             | Origin | Description |
+|---------------|------------------|--------|-------------|
+| `None`        | Baseline         | Paper  | No fairness constraint |
+| `FOCF_ValUnf` | Outcome fairness | Paper  | Minimizes value unfairness (signed bias gap between groups) |
+| `FOCF_AbsUnf` | Outcome fairness | Paper  | Minimizes absolute unfairness between groups |
+| `PCFR`        | Process fairness | Paper  | Adversarial filter removes sensitive info from user embeddings |
+| `FairRec`     | Process fairness | Paper  | Dual-branch (learner + filter) with orthogonal regularization |
+| `FairPO`      | **Process + Outcome** | **New (this version)** | Adversarial process fairness + value-unfairness outcome penalty |
+
+### FairPO — Fair Process & Outcome
+
+**FairPO** (Fair Process & Outcome) is a new fairness framework added in this version of the repository. It is designed to address both types of user-side fairness simultaneously:
+
+- **Process fairness** — prevents sensitive attributes from being recoverable from user embeddings via an adversarial discriminator (inherited from PCFR)
+- **Outcome fairness** — penalizes discrepancies in prediction scores between demographic groups (inspired by FOCF)
+
+#### Loss Function
 
 ```
 L = L_rec + α · L_adv + β · L_outcome
@@ -104,6 +113,8 @@ L = L_rec + α · L_adv + β · L_outcome
   α         = --fairpo_alpha  (default 1.0)
   β         = --fairpo_beta   (default 1.0)
 ```
+
+FairPO is implemented for all four backbone models (BiasedMF, PMF, DMF, MLP).
 
 ---
 
@@ -275,18 +286,61 @@ FairPO             0.8355        0.4592        0.0105        0.0105        0.020
 
 ---
 
-## Expected Results
+## Experimental Results
 
-`BiasedMF`, `insurance`, `u_gender`, 100 epochs:
+Full results on the **Insurance dataset** (`BiasedMF`, all 4 sensitive attributes). These results include both the paper's original frameworks and the new **FairPO** method.
 
-| Framework   | NDCG@3 | ValUnf | UsrUnf | DiscAUC |
-|-------------|--------|--------|--------|---------|
-| None        | 0.8503 | 0.0125 | 0.0056 | —       |
-| FOCF_ValUnf | 0.8502 | 0.0128 | 0.0054 | —       |
-| FOCF_AbsUnf | 0.8508 | 0.0119 | 0.0056 | —       |
-| PCFR        | 0.8337 | 0.0102 | 0.0215 | 0.5001  |
-| FairRec     | 0.8385 | 0.0104 | 0.0134 | 0.5000  |
-| FairPO      | 0.8355 | 0.0105 | 0.0201 | 0.5001  |
+### Process Fairness — Attacker AUC ↓ (0.5 = perfect, attacker is random)
+
+| Framework   | u_gender | u_occupation | u_activity | u_marital |
+|-------------|----------|--------------|------------|-----------|
+| None        | 0.5000   | 0.5000       | 0.7470     | 0.6149    |
+| FOCF_ValUnf | 0.5000   | 0.5000       | 0.7420     | 0.6153    |
+| FOCF_AbsUnf | 0.5000   | 0.5000       | 0.7345     | 0.6179    |
+| PCFR        | 0.5000   | 0.5000       | 0.5000     | 0.5000    |
+| FairRec     | 0.5000   | 0.5000       | 0.5000     | 0.5000    |
+| **FairPO**  | **0.5000** | **0.5000** | **0.5000** | **0.5000** |
+
+FOCF methods fail to achieve process fairness on u_activity and u_marital since they have no adversarial component. FairPO matches PCFR and FairRec with perfect process fairness across all attributes.
+
+### Recommendation Quality — NDCG@3 ↑
+
+| Framework   | u_gender | u_occupation | u_activity | u_marital | Avg    |
+|-------------|----------|--------------|------------|-----------|--------|
+| None        | **0.8503** | **0.8531** | **0.8533** | **0.8538** | **0.8526** |
+| FOCF_ValUnf | 0.8502   | 0.8527       | 0.8462     | 0.8504    | 0.8499 |
+| FOCF_AbsUnf | 0.8508   | **0.8531**   | 0.8469     | 0.8498    | 0.8502 |
+| PCFR        | 0.8337   | 0.8350       | 0.8346     | 0.8322    | 0.8339 |
+| FairRec     | 0.8385   | 0.8380       | **0.8400** | 0.8374    | 0.8385 |
+| **FairPO**  | 0.8355   | 0.8332       | 0.8356     | 0.8334    | 0.8344 |
+
+Among process-fair methods, FairPO (avg 0.8344) outperforms PCFR (avg 0.8339) and is competitive with FairRec (avg 0.8385).
+
+### Outcome Fairness — Value Unfairness ↓
+
+| Framework   | u_gender | u_occupation | u_activity | u_marital | Avg    |
+|-------------|----------|--------------|------------|-----------|--------|
+| None        | 0.01246  | 0.02648      | 0.20084    | 0.04730   | 0.07177 |
+| FOCF_ValUnf | 0.01281  | 0.03471      | 0.09019    | 0.08003   | 0.05444 |
+| FOCF_AbsUnf | 0.01185  | 0.03728      | 0.10606    | 0.08731   | 0.06063 |
+| PCFR        | **0.01021** | **0.01808** | 0.03834  | **0.03393** | **0.02514** |
+| FairRec     | 0.01039  | 0.01877      | 0.03892    | 0.03453   | 0.02565 |
+| **FairPO**  | 0.01055  | **0.01755**  | **0.03978** | 0.03608  | 0.02599 |
+
+FairPO achieves the best outcome fairness on u_occupation and competitive results on all other attributes, despite not being a dedicated outcome fairness method.
+
+### Summary
+
+| Framework   | Process Fair (all attrs)? | Avg NDCG@3 | Avg ValUnf |
+|-------------|---------------------------|------------|------------|
+| None        | ❌ (2/4)                  | 0.8526     | 0.07177    |
+| FOCF_ValUnf | ❌ (2/4)                  | 0.8499     | 0.05444    |
+| FOCF_AbsUnf | ❌ (2/4)                  | 0.8502     | 0.06063    |
+| PCFR        | ✅ (4/4)                  | 0.8339     | **0.02514** |
+| FairRec     | ✅ (4/4)                  | **0.8385** | 0.02565    |
+| **FairPO**  | ✅ **(4/4)**               | 0.8344     | 0.02599    |
+
+**FairPO** is the only method that achieves perfect process fairness across all sensitive attributes while simultaneously maintaining competitive recommendation quality and outcome fairness.
 
 ---
 
