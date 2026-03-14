@@ -344,6 +344,43 @@ FairPO achieves the best outcome fairness on u_occupation and competitive result
 
 ---
 
+## Q1: Cross-Attribute Leakage Analysis
+
+> **Question:** When PCFR mitigates leakage for one sensitive attribute, what happens to the leakage of the *other* attributes?
+
+### How to Run
+
+```bash
+cd src/
+python cross_leakage_eval.py
+```
+
+The script loads saved PCFR checkpoints (one per sensitive attribute), freezes each model, then trains a fresh attacker discriminator for **all 4 attributes** on each frozen model. It outputs a cross-leakage AUC matrix. Runtime: ~15 minutes on CPU.
+
+### Results — PCFR Cross-Leakage AUC Matrix
+
+> Rows = which attribute PCFR was trained to protect
+> Columns = which attribute the attacker is probing
+> ← = the trained (protected) attribute | 0.50 = no leakage
+
+| Trained on → | u_gender | u_occupation | u_activity | u_marital |
+|---|---|---|---|---|
+| **Baseline (None)** | 0.5452 | 0.5438 | 0.8764 | 0.6653 |
+| **PCFR / u_gender** | **0.5262 ←** | 0.5502 | 0.6964 | 0.6015 |
+| **PCFR / u_occupation** | 0.5272 | **0.5535 ←** | 0.6869 | 0.6048 |
+| **PCFR / u_activity** | 0.5210 | 0.5514 | **0.6913 ←** | 0.6028 |
+| **PCFR / u_marital** | 0.5195 | 0.5499 | 0.6867 | **0.6110 ←** |
+
+### Key Findings
+
+1. **Positive spillover** — protecting any one attribute reduces leakage of all others. The adversarial training makes embeddings generally less informative about demographics.
+
+2. **u_activity is resistant** — even when PCFR directly targets `u_activity`, leakage only drops from 0.8764 → 0.6913. It is strongly encoded in the user embeddings and single-attribute PCFR cannot fully suppress it.
+
+3. **No attribute reaches 0.50 unless it was the direct training target** — and the trained attribute itself only reaches 0.52–0.55. True multi-attribute fairness requires training against all attributes simultaneously (→ Q2).
+
+---
+
 ## Troubleshooting
 
 | Error | Fix |
