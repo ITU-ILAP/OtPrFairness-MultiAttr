@@ -34,12 +34,13 @@ from utils.generic import batch_to_gpu
 
 # Map framework name → model class
 MODEL_CLASS = {
-    'None':        BiasedMF,
-    'FOCF_ValUnf': BiasedMF_FOCF_ValUnf,
-    'FOCF_AbsUnf': BiasedMF_FOCF_AbsUnf,
-    'PCFR':        BiasedMF_PCFR,
-    'FairRec':     BiasedMF_FairRec,
-    'FairPO':      BiasedMF_FairPO,
+    'None':           BiasedMF,
+    'FOCF_ValUnf':    BiasedMF_FOCF_ValUnf,
+    'FOCF_AbsUnf':    BiasedMF_FOCF_AbsUnf,
+    'PCFR':           BiasedMF_PCFR,
+    'FairRec':        BiasedMF_FairRec,
+    'FairPO':         BiasedMF_FairPO,
+    'PCFR_MultiAttr': BiasedMF_PCFR,   # same architecture, trained on all attrs
 }
 
 # suppress all INFO/DEBUG noise from the project
@@ -74,6 +75,11 @@ for fw in ['PCFR']:
         pt = os.path.join(model_base, folder, fname)
         if os.path.exists(pt):
             MODELS[(fw, attr)] = pt
+
+# Q2: multi-attribute PCFR trained on all 4 attrs simultaneously
+_q2_path = os.path.join(model_base, 'PCFR_multiattr_insurance', 'model.pt')
+if os.path.exists(_q2_path):
+    MODELS[('PCFR_MultiAttr', 'all_attrs')] = _q2_path
 
 # ── Model loading ──────────────────────────────────────────────────────────────
 
@@ -222,12 +228,16 @@ def main():
     print("  0.50 = random (no leakage) | ← = trained attribute")
     print("="*92)
 
-    frameworks = ['PCFR']
+    frameworks = ['PCFR', 'PCFR_MultiAttr']
     col_w = 14
     results = {}
 
+    # Build trained_attr list: single attrs for PCFR, 'all_attrs' for PCFR_MultiAttr
+    trained_attrs_for = {fw: ALL_ATTRS for fw in frameworks}
+    trained_attrs_for['PCFR_MultiAttr'] = ['all_attrs']
+
     for fw in frameworks:
-        for trained_attr in ALL_ATTRS:
+        for trained_attr in trained_attrs_for[fw]:
             key = (fw, trained_attr)
             if key not in MODELS:
                 continue
@@ -235,9 +245,16 @@ def main():
             model_path = MODELS[key]
             print(f"\n▶ {fw} trained on {trained_attr}  [{os.path.basename(model_path)}]")
 
-            # Build data pipeline using trained_attr as the "native" feature
+            # Build dp_dict: multi-attr model needs all 4 cols; others need 1
+            feature_cols = ALL_ATTRS if trained_attr == 'all_attrs' else [trained_attr]
             try:
-                dr, dp_dict = build_rec_dp_dict(trained_attr)
+                dr = RecDataReader(path=DATA_PATH, dataset_name=DATASET,
+                                   feature_columns=feature_cols, sep='\t')
+                train_dp = RecDataset(data_reader=dr, stage='train',
+                                      batch_size=BATCH_SIZE, num_neg=VT_NUM_NEG)
+                test_dp  = RecDataset(data_reader=dr, stage='test',
+                                      batch_size=BATCH_SIZE, num_neg=VT_NUM_NEG)
+                dp_dict = {'train': train_dp, 'test': test_dp}
                 model = load_frozen_model(model_path, dp_dict, fw)
             except Exception as e:
                 print(f"  ✗ Load failed: {e}")
@@ -267,7 +284,8 @@ def main():
     print("-" * 92)
 
     for fw in frameworks:
-        for trained_attr in ALL_ATTRS:
+        all_trained = trained_attrs_for.get(fw, ALL_ATTRS)
+        for trained_attr in all_trained:
             key = (fw, trained_attr)
             if key not in results:
                 continue
