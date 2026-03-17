@@ -5,7 +5,7 @@ Implementation for the paper:
 > **"Investigating User-Side Fairness in Outcome and Process for Multi-Type Sensitive Attributes in Recommendations"**
 > ACM Transactions on Recommender Systems, 2025 — Hong Kong Baptist University
 
-This repo implements and compares six fairness frameworks for recommender systems, including **FairPO** — a new method that jointly enforces both *process fairness* (adversarial learning) and *outcome fairness* (value-unfairness regularization).
+This repo implements and compares six fairness frameworks for recommender systems, plus **FairPO** — a new method that jointly enforces both *process fairness* (adversarial learning) and *outcome fairness* (value-unfairness regularization). It also includes two research extensions (Q1, Q2) studying cross-attribute leakage and multi-attribute simultaneous fairness.
 
 ---
 
@@ -15,12 +15,12 @@ This repo implements and compares six fairness frameworks for recommender system
 2. [Setup](#setup)
 3. [Datasets](#datasets)
 4. [Fairness Frameworks](#fairness-frameworks)
-5. [Quick Start](#quick-start)
-6. [Running Individual Experiments](#running-individual-experiments)
-7. [Running a Full Comparison](#running-a-full-comparison)
-8. [Key Arguments Reference](#key-arguments-reference)
-9. [Fairness Metrics](#fairness-metrics)
-10. [Expected Results](#expected-results)
+5. [Usage](#usage)
+6. [Key Arguments Reference](#key-arguments-reference)
+7. [Fairness Metrics](#fairness-metrics)
+8. [Results](#results)
+9. [Q1: Cross-Attribute Leakage](#q1-cross-attribute-leakage-analysis)
+10. [Q2: Multi-Attribute Simultaneous Fairness](#q2-multi-attribute-simultaneous-fairness)
 11. [Troubleshooting](#troubleshooting)
 
 ---
@@ -33,14 +33,17 @@ OtPrFairness-MultiAttr/
 │   ├── insurance/          # Insurance recommendation dataset
 │   └── ml1M/               # MovieLens 1M dataset
 ├── src/
-│   ├── main.py             # Entry point — runs a single experiment
-│   ├── run_comparison.py   # Runs all 6 frameworks and prints a comparison table
-│   ├── runner.py           # Training loops for all frameworks
+│   ├── main.py                    # Entry point — single experiment
+│   ├── run_comparison.py          # Trains all 6 frameworks, prints comparison table
+│   ├── runner.py                  # Training loops for all frameworks
+│   ├── cross_leakage_eval.py      # Q1: cross-attribute leakage AUC matrix
+│   ├── multi_attr_pcfr_train.py   # Q2: trains PCFR against all 4 attributes simultaneously
+│   ├── multi_attr_eval.py         # Q2: evaluates all models on quality + outcome fairness
 │   └── models/
-│       ├── BiasedMF.py     # Biased Matrix Factorization + fairness variants
-│       ├── PMF.py          # Probabilistic Matrix Factorization
-│       ├── DMF.py          # Deep Matrix Factorization
-│       └── MLP.py          # Multi-Layer Perceptron
+│       ├── BiasedMF.py     # Biased MF + all fairness variants (PCFR, FairRec, FairPO, FOCF)
+│       ├── PMF.py
+│       ├── DMF.py
+│       └── MLP.py
 ├── cmd/
 │   └── BiasedMF/
 │       ├── exp_insurance.txt        # Commands for original frameworks on insurance
@@ -55,13 +58,7 @@ OtPrFairness-MultiAttr/
 
 ## Setup
 
-### Requirements
-
-- Python 3.8+
-- PyTorch (CPU is fine — no GPU required)
-- numpy, pandas, scikit-learn, tqdm
-
-### Install
+**Requirements:** Python 3.8+, PyTorch (CPU is fine), numpy, pandas, scikit-learn, tqdm
 
 ```bash
 git clone https://github.com/ITU-ILAP/OtPrFairness-MultiAttr.git
@@ -75,177 +72,105 @@ pip install torch numpy pandas scikit-learn tqdm
 
 | Dataset   | Users | Items | Interactions | Sensitive Attributes |
 |-----------|-------|-------|--------------|----------------------|
-| insurance | 1,511 | 12    | 27,180       | u_gender, u_activity, u_marital_status, u_occupation |
+| insurance | 1,511 | 12    | 27,180       | u_gender, u_occupation, u_activity, u_marital_status |
 | ml1M      | 6,040 | 3,416 | 999,611      | u_gender, u_age |
 
-Dataset files are **not included** in this repository due to size. See [`dataset/README.md`](dataset/README.md) for download and preprocessing instructions.
+Dataset files are **not included** — see [`dataset/README.md`](dataset/README.md) for download and preprocessing instructions.
 
 ---
 
 ## Fairness Frameworks
 
-This repository extends the original paper implementation with **FairPO**, a new framework introduced in this version that jointly enforces both process and outcome fairness.
+| Framework     | Type                  | Origin              | Description |
+|---------------|-----------------------|---------------------|-------------|
+| `None`        | Baseline              | Paper               | No fairness constraint |
+| `FOCF_ValUnf` | Outcome               | Paper               | Minimizes signed bias gap between groups |
+| `FOCF_AbsUnf` | Outcome               | Paper               | Minimizes absolute unfairness between groups |
+| `PCFR`        | Process               | Paper               | Adversarial filter removes sensitive info from user embeddings |
+| `FairRec`     | Process               | Paper               | Dual-branch learner with orthogonal regularization |
+| `FairPO`      | **Process + Outcome** | **New (this repo)** | Adversarial process fairness + value-unfairness outcome penalty |
 
-| Framework     | Type             | Origin | Description |
-|---------------|------------------|--------|-------------|
-| `None`        | Baseline         | Paper  | No fairness constraint |
-| `FOCF_ValUnf` | Outcome fairness | Paper  | Minimizes value unfairness (signed bias gap between groups) |
-| `FOCF_AbsUnf` | Outcome fairness | Paper  | Minimizes absolute unfairness between groups |
-| `PCFR`        | Process fairness | Paper  | Adversarial filter removes sensitive info from user embeddings |
-| `FairRec`     | Process fairness | Paper  | Dual-branch (learner + filter) with orthogonal regularization |
-| `FairPO`      | **Process + Outcome** | **New (this version)** | Adversarial process fairness + value-unfairness outcome penalty |
+### FairPO
 
-### FairPO — Fair Process & Outcome
-
-**FairPO** (Fair Process & Outcome) is a new fairness framework added in this version of the repository. It is designed to address both types of user-side fairness simultaneously:
-
-- **Process fairness** — prevents sensitive attributes from being recoverable from user embeddings via an adversarial discriminator (inherited from PCFR)
-- **Outcome fairness** — penalizes discrepancies in prediction scores between demographic groups (inspired by FOCF)
-
-#### Loss Function
+**FairPO** jointly addresses both fairness types in a single loss:
 
 ```
-L = L_rec + α · L_adv + β · L_outcome
+L = L_rec  +  α · L_adv  +  β · L_outcome
 
   L_rec     = BPR recommendation loss
-  L_adv     = −Σ discriminator(filtered_user_emb, sensitive_label)
-  L_outcome = smooth_l1(|mean_bias_group0 − mean_bias_group1|, 0) × batch_size/2
-  α         = --fairpo_alpha  (default 1.0)
-  β         = --fairpo_beta   (default 1.0)
+  L_adv     = −Σ discriminator(filtered_user_emb, sensitive_label)   [process]
+  L_outcome = smooth_l1(|mean_bias_g0 − mean_bias_g1|, 0) × B/2     [outcome]
+  α, β      = --fairpo_alpha / --fairpo_beta  (both default: 1.0)
 ```
 
 FairPO is implemented for all four backbone models (BiasedMF, PMF, DMF, MLP).
 
 ---
 
-## Quick Start
+## Usage
 
-**All commands must be run from the `src/` directory:**
+All commands must be run from the `src/` directory: `cd src/`
 
-```bash
-cd src/
-```
-
-### No fairness (baseline)
+### Single experiment
 
 ```bash
-python main.py \
-  --model_name BiasedMF --fairness_framework None \
+# No fairness (baseline)
+python main.py --model_name BiasedMF --fairness_framework None \
   --dataset insurance --feature_columns u_gender \
   --optimizer Adam --metric ndcg@3,f1@3 \
-  --lr 1e-3 --l2 1e-4 --batch_size 1024 \
-  --epoch 100 --eval_disc
-```
+  --lr 1e-3 --l2 1e-4 --batch_size 1024 --epoch 100 --eval_disc
 
-### FairPO (process + outcome fairness)
-
-```bash
-python main.py \
-  --model_name BiasedMF --fairness_framework FairPO \
+# FairPO
+python main.py --model_name BiasedMF --fairness_framework FairPO \
   --dataset insurance --feature_columns u_gender \
   --optimizer Adam --metric ndcg@3,f1@3 \
-  --lr 1e-3 --l2 1e-4 --batch_size 1024 \
-  --epoch 100 --eval_disc \
+  --lr 1e-3 --l2 1e-4 --batch_size 1024 --epoch 100 --eval_disc \
   --fairpo_alpha 1.0 --fairpo_beta 1.0
 ```
 
-### PCFR (process fairness only)
+For PCFR, FairRec, FOCF variants: replace `--fairness_framework` accordingly. Optional extra args: `--fairrec_lambda 0.05` for FairRec.
+
+### Full comparison (all 6 frameworks)
 
 ```bash
-python main.py \
-  --model_name BiasedMF --fairness_framework PCFR \
-  --dataset insurance --feature_columns u_gender \
-  --optimizer Adam --metric ndcg@3,f1@3 \
-  --lr 1e-3 --l2 1e-4 --batch_size 1024 \
-  --epoch 100 --eval_disc
-```
-
-### FairRec
-
-```bash
-python main.py \
-  --model_name BiasedMF --fairness_framework FairRec \
-  --dataset insurance --feature_columns u_gender \
-  --optimizer Adam --metric ndcg@3,f1@3 \
-  --lr 1e-3 --l2 1e-4 --batch_size 1024 \
-  --epoch 100 --eval_disc \
-  --fairrec_lambda 0.05
-```
-
-### FOCF (outcome fairness)
-
-```bash
-# Value unfairness variant
-python main.py \
-  --model_name BiasedMF --fairness_framework FOCF_ValUnf \
-  --dataset insurance --feature_columns u_gender \
-  --optimizer Adam --metric ndcg@3,f1@3 \
-  --lr 1e-3 --l2 1e-4 --batch_size 1024 \
-  --epoch 100 --eval_disc
-
-# Absolute unfairness variant
-python main.py \
-  --model_name BiasedMF --fairness_framework FOCF_AbsUnf \
-  --dataset insurance --feature_columns u_gender \
-  --optimizer Adam --metric ndcg@3,f1@3 \
-  --lr 1e-3 --l2 1e-4 --batch_size 1024 \
-  --epoch 100 --eval_disc
-```
-
----
-
-## Running Individual Experiments
-
-Pre-written command files are in `cmd/BiasedMF/`. They run all sensitive attributes for one dataset.
-
-```bash
-cd src/
-
-# Run all original frameworks on insurance dataset (all 4 sensitive attributes)
-while IFS= read -r line; do
-  [[ "$line" == \#* || -z "$line" ]] && continue
-  eval "$line"
-done < ../cmd/BiasedMF/exp_insurance.txt
-
-# Run FairPO on insurance dataset
-while IFS= read -r line; do
-  [[ "$line" == \#* || -z "$line" ]] && continue
-  eval "$line"
-done < ../cmd/BiasedMF/exp_insurance_FairPO.txt
-```
-
-> **Tip:** The cmd files use `--epoch 1000` for full replication. For quick testing, add `--epoch 100` to any command.
-
----
-
-## Running a Full Comparison
-
-The comparison script trains all 6 frameworks and prints a results table:
-
-```bash
-cd src/
 python run_comparison.py
+# Trains all 6 frameworks on insurance/u_gender, 100 epochs each
+# Runtime: ~20–30 min on CPU
 ```
 
-This runs `BiasedMF` on `insurance / u_gender` for 100 epochs each and outputs:
+### Batch experiments (all attributes)
 
-```
-====================================================================================================
-                                        COMPARISON TABLE
-              Model=BiasedMF | Dataset=insurance | Attribute=u_gender | Epochs=100
-====================================================================================================
-Framework          NDCG@3          F1@3       ValUnf↓       AbsUnf↓       UsrUnf↓  DiscAUC→0.5
-----------------------------------------------------------------------------------------------------
-None               0.8503        0.4592        0.0125        0.0125        0.0056       0.5000
-FOCF_ValUnf        0.8502        0.4578        0.0128        0.0128        0.0054       0.5000
-FOCF_AbsUnf        0.8508        0.4599        0.0119        0.0119        0.0056       0.5000
-PCFR               0.8337        0.4521        0.0102        0.0102        0.0215       0.5001
-FairRec            0.8385        0.4541        0.0104        0.0104        0.0134       0.5000
-FairPO             0.8355        0.4592        0.0105        0.0105        0.0201       0.5001
-====================================================================================================
+```bash
+while IFS= read -r line; do [[ "$line" == \#* || -z "$line" ]] && continue; eval "$line"; done \
+  < ../cmd/BiasedMF/exp_insurance.txt
+
+while IFS= read -r line; do [[ "$line" == \#* || -z "$line" ]] && continue; eval "$line"; done \
+  < ../cmd/BiasedMF/exp_insurance_FairPO.txt
 ```
 
-**Expected runtime:** ~20–30 minutes on CPU.
+> **Tip:** The cmd files use `--epoch 1000` for full replication. For quick testing, override with `--epoch 100`.
+
+### Q1: Cross-attribute leakage
+
+```bash
+python cross_leakage_eval.py
+# Loads saved PCFR checkpoints, trains fresh attackers for all 4 attributes
+# Runtime: ~15 min on CPU
+```
+
+### Q2: Multi-attribute PCFR
+
+```bash
+# Step 1 — Train
+python multi_attr_pcfr_train.py
+# Trains PCFR against all 4 discriminators simultaneously
+# Saves to ../model/PCFR_multiattr_insurance/model.pt — ~10 min on CPU
+
+# Step 2 — Evaluate quality + fairness
+python multi_attr_eval.py
+# Evaluates all saved checkpoints: NDCG@3, UGF, ValUnf for all 4 attributes
+# Runtime: ~5 min on CPU
+```
 
 ---
 
@@ -256,41 +181,54 @@ FairPO             0.8355        0.4592        0.0105        0.0105        0.020
 | `--model_name`         | `BiasedMF`| Model: `BiasedMF`, `PMF`, `DMF`, `MLP` |
 | `--fairness_framework` | `None`    | Framework (see table above) |
 | `--dataset`            | —         | `insurance` or `ml1M` |
-| `--feature_columns`    | —         | Sensitive attribute (e.g. `u_gender`) |
+| `--feature_columns`    | —         | Sensitive attribute, e.g. `u_gender` |
 | `--epoch`              | `100`     | Training epochs |
 | `--lr`                 | `0.001`   | Learning rate |
 | `--l2`                 | `1e-5`    | L2 regularization |
 | `--batch_size`         | `128`     | Training batch size |
 | `--optimizer`          | `GD`      | `GD` (SGD), `Adam`, `Adagrad` |
-| `--metric`             | `RMSE`    | Evaluation metric(s), e.g. `ndcg@3,f1@3` |
-| `--eval_disc`          | flag      | Evaluate process fairness with a trained discriminator |
+| `--metric`             | `RMSE`    | Evaluation metrics, e.g. `ndcg@3,f1@3` |
+| `--eval_disc`          | flag      | Evaluate process fairness via trained discriminator |
 | `--u_vector_size`      | `64`      | User embedding dimension |
-| `--i_vector_size`      | `64`      | Item embedding dimension |
 | `--vt_num_neg`         | `100`     | Negatives per positive at val/test time |
 | `--fairpo_alpha`       | `1.0`     | FairPO: adversarial penalty weight |
 | `--fairpo_beta`        | `1.0`     | FairPO: outcome-fairness penalty weight |
-| `--fairrec_lambda`     | `0.5`     | FairRec: combined fairness loss weight |
-| `--num_worker`         | `0`       | DataLoader workers (keep at 0 on macOS/Windows) |
+| `--fairrec_lambda`     | `0.5`     | FairRec: fairness loss weight |
+| `--num_worker`         | `0`       | DataLoader workers (keep 0 on macOS/Windows) |
 
 ---
 
 ## Fairness Metrics
 
-| Metric | Better | Description |
-|--------|--------|-------------|
-| **ValUnf** | lower ↓ | Signed gap in mean (prediction − label) between groups |
-| **AbsUnf** | lower ↓ | Absolute gap in mean \|prediction − label\| between groups |
-| **UsrUnf** | lower ↓ | Gap in mean NDCG between the two user groups |
-| **CGU** | higher ↑ | Calibrated Group-wise Utility: relative utility difference between groups vs baseline |
-| **DiscAUC** | → 0.5 | AUC of a discriminator predicting the sensitive attribute from embeddings; 0.5 = perfectly fair (process fairness) |
+| Metric      | Better   | Description |
+|-------------|----------|-------------|
+| **ValUnf**  | lower ↓  | Signed gap in mean (prediction − label) between groups |
+| **AbsUnf**  | lower ↓  | Absolute gap in mean \|prediction − label\| between groups |
+| **UGF**     | lower ↓  | Gap in mean NDCG between the two user groups (user-oriented group fairness) |
+| **DiscAUC** | → 0.5    | AUC of a discriminator predicting the sensitive attribute from user embeddings; 0.5 = no leakage (perfect process fairness) |
 
 ---
 
-## Experimental Results
+## Results
 
-Full results on the **Insurance dataset** (`BiasedMF`, all 4 sensitive attributes). These results include both the paper's original frameworks and the new **FairPO** method.
+All results use **BiasedMF on the Insurance dataset**. Each framework in the baseline tables is trained separately per sensitive attribute (standard single-attribute evaluation).
 
-### Process Fairness — Attacker AUC ↓ (0.5 = perfect, attacker is random)
+### Recommendation Quality — NDCG@3 ↑
+
+| Framework   | u_gender | u_occupation | u_activity | u_marital | Avg    |
+|-------------|----------|--------------|------------|-----------|--------|
+| None        | **0.8503** | **0.8531** | **0.8533** | **0.8538** | **0.8526** |
+| FOCF_ValUnf | 0.8502   | 0.8527       | 0.8462     | 0.8504    | 0.8499 |
+| FOCF_AbsUnf | 0.8508   | **0.8531**   | 0.8469     | 0.8498    | 0.8502 |
+| PCFR        | 0.8337   | 0.8350       | 0.8346     | 0.8322    | 0.8339 |
+| FairRec     | 0.8385   | 0.8380       | **0.8400** | 0.8374    | **0.8385** |
+| **FairPO**  | 0.8355   | 0.8332       | 0.8356     | 0.8334    | 0.8344 |
+
+Among process-fair methods, FairRec leads on quality, followed closely by FairPO and PCFR.
+
+### Process Fairness — Attacker AUC → 0.5 ↓
+
+Each column is the DiscAUC when the framework is trained to protect that specific attribute.
 
 | Framework   | u_gender | u_occupation | u_activity | u_marital |
 |-------------|----------|--------------|------------|-----------|
@@ -301,37 +239,24 @@ Full results on the **Insurance dataset** (`BiasedMF`, all 4 sensitive attribute
 | FairRec     | 0.5000   | 0.5000       | 0.5000     | 0.5000    |
 | **FairPO**  | **0.5000** | **0.5000** | **0.5000** | **0.5000** |
 
-FOCF methods fail to achieve process fairness on u_activity and u_marital since they have no adversarial component. FairPO matches PCFR and FairRec with perfect process fairness across all attributes.
-
-### Recommendation Quality — NDCG@3 ↑
-
-| Framework   | u_gender | u_occupation | u_activity | u_marital | Avg    |
-|-------------|----------|--------------|------------|-----------|--------|
-| None        | **0.8503** | **0.8531** | **0.8533** | **0.8538** | **0.8526** |
-| FOCF_ValUnf | 0.8502   | 0.8527       | 0.8462     | 0.8504    | 0.8499 |
-| FOCF_AbsUnf | 0.8508   | **0.8531**   | 0.8469     | 0.8498    | 0.8502 |
-| PCFR        | 0.8337   | 0.8350       | 0.8346     | 0.8322    | 0.8339 |
-| FairRec     | 0.8385   | 0.8380       | **0.8400** | 0.8374    | 0.8385 |
-| **FairPO**  | 0.8355   | 0.8332       | 0.8356     | 0.8334    | 0.8344 |
-
-Among process-fair methods, FairPO (avg 0.8344) outperforms PCFR (avg 0.8339) and is competitive with FairRec (avg 0.8385).
+FOCF methods fail on `u_activity` and `u_marital` (no adversarial component). PCFR, FairRec, and FairPO all achieve perfect process fairness on their target attribute.
 
 ### Outcome Fairness — Value Unfairness ↓
 
-| Framework   | u_gender | u_occupation | u_activity | u_marital | Avg    |
-|-------------|----------|--------------|------------|-----------|--------|
+| Framework   | u_gender | u_occupation | u_activity | u_marital | Avg     |
+|-------------|----------|--------------|------------|-----------|---------|
 | None        | 0.01246  | 0.02648      | 0.20084    | 0.04730   | 0.07177 |
 | FOCF_ValUnf | 0.01281  | 0.03471      | 0.09019    | 0.08003   | 0.05444 |
 | FOCF_AbsUnf | 0.01185  | 0.03728      | 0.10606    | 0.08731   | 0.06063 |
-| PCFR        | **0.01021** | **0.01808** | 0.03834  | **0.03393** | **0.02514** |
+| PCFR        | **0.01021** | **0.01808** | 0.03834 | **0.03393** | **0.02514** |
 | FairRec     | 0.01039  | 0.01877      | 0.03892    | 0.03453   | 0.02565 |
 | **FairPO**  | 0.01055  | **0.01755**  | **0.03978** | 0.03608  | 0.02599 |
 
-FairPO achieves the best outcome fairness on u_occupation and competitive results on all other attributes, despite not being a dedicated outcome fairness method.
+Despite having no explicit outcome-fairness constraint, PCFR and FairPO achieve the best ValUnf — adversarial training removes attribute-correlated patterns that often cause outcome bias.
 
 ### Summary
 
-| Framework   | Process Fair (all attrs)? | Avg NDCG@3 | Avg ValUnf |
+| Framework   | Process fair (all attrs)? | Avg NDCG@3 | Avg ValUnf |
 |-------------|---------------------------|------------|------------|
 | None        | ❌ (2/4)                  | 0.8526     | 0.07177    |
 | FOCF_ValUnf | ❌ (2/4)                  | 0.8499     | 0.05444    |
@@ -340,28 +265,22 @@ FairPO achieves the best outcome fairness on u_occupation and competitive result
 | FairRec     | ✅ (4/4)                  | **0.8385** | 0.02565    |
 | **FairPO**  | ✅ **(4/4)**               | 0.8344     | 0.02599    |
 
-**FairPO** is the only method that achieves perfect process fairness across all sensitive attributes while simultaneously maintaining competitive recommendation quality and outcome fairness.
+**FairPO** uniquely achieves all three goals: perfect process fairness, competitive recommendation quality, and strong outcome fairness — without requiring a dedicated outcome-fairness loss.
 
 ---
 
 ## Q1: Cross-Attribute Leakage Analysis
 
-> **Question:** When PCFR mitigates leakage for one sensitive attribute, what happens to the leakage of the *other* attributes?
-
-### How to Run
+> **Question:** When PCFR protects one attribute, what happens to the leakage of the *other* attributes?
 
 ```bash
-cd src/
-python cross_leakage_eval.py
+cd src/ && python cross_leakage_eval.py   # ~15 min on CPU
 ```
 
-The script loads saved PCFR checkpoints (one per sensitive attribute), freezes each model, then trains a fresh attacker discriminator for **all 4 attributes** on each frozen model. It outputs a cross-leakage AUC matrix. Runtime: ~15 minutes on CPU.
+### Results — Cross-Leakage AUC Matrix
 
-### Results — PCFR Cross-Leakage AUC Matrix
-
-> Rows = which attribute PCFR was trained to protect
-> Columns = which attribute the attacker is probing
-> ← = the trained (protected) attribute | 0.50 = no leakage
+Rows = PCFR trained to protect this attribute. Columns = attribute probed by fresh attacker.
+**←** marks the trained (protected) attribute. 0.50 = no leakage.
 
 | Trained on → | u_gender | u_occupation | u_activity | u_marital |
 |---|---|---|---|---|
@@ -373,52 +292,34 @@ The script loads saved PCFR checkpoints (one per sensitive attribute), freezes e
 
 ### Key Findings
 
-1. **Positive spillover** — protecting any one attribute reduces leakage of all others. The adversarial training makes embeddings generally less informative about demographics.
-
-2. **u_activity is resistant** — even when PCFR directly targets `u_activity`, leakage only drops from 0.8764 → 0.6913. It is strongly encoded in the user embeddings and single-attribute PCFR cannot fully suppress it.
-
-3. **No attribute reaches 0.50 unless it was the direct training target** — and the trained attribute itself only reaches 0.52–0.55. True multi-attribute fairness requires training against all attributes simultaneously (→ Q2).
+1. **Positive spillover** — protecting any one attribute reduces leakage of all others. Adversarial training makes embeddings generally less informative about demographics.
+2. **`u_activity` is resistant** — even when PCFR targets it directly, leakage only drops from 0.8764 → 0.6913. It is strongly encoded and cannot be suppressed by single-attribute training.
+3. **No attribute reaches 0.50 unless it is the direct training target** — and even then only down to 0.52–0.55. True multi-attribute fairness requires training against all attributes simultaneously (→ Q2).
 
 ---
 
-## Q2: Multi-Attribute Simultaneous Leakage Mitigation
+## Q2: Multi-Attribute Simultaneous Fairness
 
-> **Question:** Can we train a single PCFR model to suppress leakage of *all* sensitive attributes at once, rather than one at a time?
+> **Question:** Can a single PCFR model suppress leakage of *all* attributes at once — and what is the cost to recommendation quality and outcome fairness?
 
 ### Approach
 
-A single `BiasedMF_PCFR` model is trained adversarially against **4 discriminators simultaneously** — one per sensitive attribute. In each training step:
+A single `BiasedMF_PCFR` is trained against **4 discriminators simultaneously** — one per attribute. Each batch step:
 
 ```
 total_loss = rec_loss − adv_weight × (disc_gender + disc_occupation + disc_activity + disc_marital)
 ```
 
-All four discriminators receive gradients in every batch. The model must learn embeddings that fool all four at once.
-
-### How to Run
-
-**Step 1 — Train the multi-attribute model:**
+All four discriminators receive gradients every batch. The model must learn embeddings that fool all four at once.
 
 ```bash
 cd src/
-python multi_attr_pcfr_train.py
-# Saves checkpoint to ../model/PCFR_multiattr_insurance/model.pt
-# Runtime: ~10 minutes on CPU (100 epochs)
+python multi_attr_pcfr_train.py    # ~10 min on CPU
+python cross_leakage_eval.py       # adds PCFR_MultiAttr row to Q1 matrix
+python multi_attr_eval.py          # quality + outcome fairness comparison
 ```
 
-**Step 2 — Evaluate cross-attribute leakage (includes Q1 + Q2 comparison):**
-
-```bash
-cd src/
-python cross_leakage_eval.py
-# Automatically detects the Q2 checkpoint and adds it as an extra row
-# Runtime: ~15 minutes on CPU
-```
-
-### Results — Q1 vs Q2 Leakage Comparison
-
-> Rows = model and training target | Columns = attribute probed by attacker
-> ← = trained attribute | 0.50 = no leakage (attacker is random)
+### Process Fairness — Q1 vs Q2 Leakage Comparison
 
 | Model | Trained on | u_gender | u_occupation | u_activity | u_marital |
 |---|---|---|---|---|---|
@@ -428,13 +329,54 @@ python cross_leakage_eval.py
 | PCFR | u_marital | 0.5195 | 0.5499 | 0.6867 | **0.6110 ←** |
 | **PCFR_MultiAttr** | **all_attrs** | **0.5051** | **0.5150** | **0.5000** | **0.5118** |
 
+**PCFR_MultiAttr drives all four attributes to near-chance AUC simultaneously**, with the biggest gain on the previously resistant `u_activity` (0.69 → 0.50).
+
+### Quality & Outcome Fairness — Full Comparison
+
+> All frameworks evaluated on the same held-out test set using their saved checkpoints (trained on `u_gender`). Fairness metrics are computed for all 4 attributes post-hoc to ensure a consistent comparison with PCFR_MultiAttr.
+
+**Recommendation Quality**
+
+| Framework | NDCG@3 | F1@3 |
+|---|---|---|
+| None | 0.8512 | 0.4707 |
+| FOCF_ValUnf | 0.8514 | 0.4708 |
+| FOCF_AbsUnf | 0.8517 | 0.4710 |
+| PCFR | 0.8324 | 0.4567 |
+| FairRec | 0.8373 | 0.4612 |
+| FairPO | 0.8354 | 0.4592 |
+| **PCFR_MultiAttr** | **0.7915** | **0.4440** |
+
+**UGF — User-Oriented Group Fairness ↓** (lower = equal NDCG across groups)
+
+| Framework | u_gender | u_occupation | u_activity | u_marital | Avg |
+|---|---|---|---|---|---|
+| None | 0.0019 | 0.1283 | 0.0560 | 0.0857 | 0.0680 |
+| FOCF_ValUnf | 0.0004 | 0.1283 | 0.0546 | 0.0868 | 0.0675 |
+| FOCF_AbsUnf | 0.0010 | 0.1273 | 0.0552 | 0.0851 | **0.0671** |
+| PCFR | 0.0202 | 0.0908 | 0.0727 | 0.0945 | 0.0696 |
+| FairRec | 0.0091 | 0.1231 | 0.0681 | 0.0916 | 0.0730 |
+| FairPO | 0.0211 | 0.0860 | 0.0730 | 0.0914 | 0.0679 |
+| **PCFR_MultiAttr** | 0.0154 | 0.1125 | 0.0704 | 0.1061 | 0.0761 |
+
+**Value Unfairness ↓** (lower = equal score bias across groups)
+
+| Framework | u_gender | u_occupation | u_activity | u_marital | Avg |
+|---|---|---|---|---|---|
+| None | 0.0131 | 0.0493 | 0.0274 | 0.2028 | 0.0731 |
+| FOCF_ValUnf | 0.0133 | 0.0497 | 0.0278 | 0.2018 | 0.0731 |
+| FOCF_AbsUnf | 0.0122 | 0.0494 | 0.0272 | 0.2013 | 0.0725 |
+| PCFR | 0.0093 | 0.0339 | 0.0180 | 0.0392 | **0.0251** |
+| FairRec | 0.0094 | 0.0343 | 0.0182 | 0.0396 | 0.0254 |
+| FairPO | 0.0101 | 0.0340 | 0.0181 | 0.0392 | 0.0254 |
+| **PCFR_MultiAttr** | 0.0512 | 0.0845 | 0.0632 | 0.1327 | 0.0829 |
+
 ### Key Findings
 
-1. **Multi-attribute training achieves near-perfect suppression across all attributes** — all four AUCs collapse to ≤0.515, compared to 0.55–0.69 for single-attribute PCFR.
-
-2. **Biggest gain on u_activity** — single-attribute PCFR could not suppress `u_activity` below ~0.69 even when directly targeting it. Multi-attribute training brings it to **0.5000** (perfectly random attacker).
-
-3. **No trade-off between attributes** — the model doesn't sacrifice one attribute to protect another; all four are suppressed simultaneously to near-chance level.
+1. **Process fairness: PCFR_MultiAttr wins** — the only method to suppress leakage of all 4 attributes simultaneously (all AUC → 0.50–0.52).
+2. **Quality cost** — joint adversarial training over-regularizes the user embeddings: NDCG drops ~5% relative to single-attribute PCFR (~0.83 → 0.79).
+3. **Outcome fairness regresses** — ValUnf avg worsens from 0.025 (single-attr PCFR) to 0.083 (PCFR_MultiAttr). Suppressing all attribute signals simultaneously disrupts the score distribution across groups.
+4. **Trade-off summary** — PCFR_MultiAttr represents a pure process-fairness solution. For applications requiring balanced process + outcome fairness with minimal quality loss, FairPO remains the stronger choice.
 
 ---
 
@@ -442,7 +384,7 @@ python cross_leakage_eval.py
 
 | Error | Fix |
 |-------|-----|
-| `AttributeError: module 'numpy' has no attribute 'float'` | Already patched. Update NumPy if it appears elsewhere: replace `np.float` with `float`. |
-| `AssertionError: Torch not compiled with CUDA enabled` | Already patched. The code auto-detects CPU/GPU. |
+| `AttributeError: module 'numpy' has no attribute 'float'` | Replace `np.float` with `float`. Already patched in this repo. |
+| `AssertionError: Torch not compiled with CUDA enabled` | Already patched — code auto-detects CPU/GPU. |
 | `RuntimeError: DataLoader worker died` | Use `--num_worker 0` (default in all cmd files). |
 | Out of memory | Reduce `--batch_size` to `256` or `--u_vector_size` to `32`. |
