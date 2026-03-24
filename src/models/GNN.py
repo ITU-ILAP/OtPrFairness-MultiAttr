@@ -38,9 +38,12 @@ class LightGCN_MultiGraph(BaseRecModel):
 
     def __init__(self, data_processor_dict, user_num, item_num,
                  u_vector_size, i_vector_size,
-                 n_gnn_layers=2, random_seed=2020, dropout=0.2,
+                 n_gnn_layers=2, min_common=3, random_seed=2020, dropout=0.2,
                  model_path='../model/LightGCN/LightGCN.pt'):
         self.n_gnn_layers = n_gnn_layers
+        self.min_common   = min_common   # min shared items for user-user edge
+        self._cache_u = None             # propagation cache for eval mode
+        self._cache_i = None
         super().__init__(data_processor_dict, user_num, item_num,
                          u_vector_size, i_vector_size,
                          random_seed=random_seed, dropout=dropout,
@@ -80,9 +83,12 @@ class LightGCN_MultiGraph(BaseRecModel):
         A_ui_norm = (D @ A @ D).tocoo()
         self.A_ui = self._sp_to_tensor(A_ui_norm)
 
-        # ── 2. User-user co-interaction ─────────────────────────────────────
+        # ── 2. User-user co-interaction (threshold: >= min_common shared items) ─
         A_uu = (R @ R.T).tocsr()
-        A_uu.setdiag(0);  A_uu.eliminate_zeros()
+        A_uu.setdiag(0)
+        # Keep only edges where users share >= min_common items
+        A_uu.data[A_uu.data < self.min_common] = 0
+        A_uu.eliminate_zeros()
         d_uu     = np.array(A_uu.sum(1)).flatten()
         d_uu_inv = np.zeros_like(d_uu); d_uu_inv[d_uu > 0] = np.power(d_uu[d_uu > 0], -0.5)
         D_uu     = sp.diags(d_uu_inv)
@@ -108,11 +114,22 @@ class LightGCN_MultiGraph(BaseRecModel):
     # Propagation
     # ------------------------------------------------------------------
 
+    def train(self, mode=True):
+        """Clear propagation cache when switching to train mode."""
+        if mode:
+            self._cache_u = None
+            self._cache_i = None
+        return super().train(mode)
+
     def _propagate(self):
         """
         Run L-layer multi-graph propagation.
         Returns (all_user_emb, all_item_emb) — averaged across all layers.
+        In eval mode the result is cached so batches don't recompute it.
         """
+        if not self.training and self._cache_u is not None:
+            return self._cache_u, self._cache_i
+
         device = self.uid_embeddings.weight.device
         A_ui = self.A_ui.to(device)
         A_uu = self.A_uu.to(device)
@@ -142,6 +159,11 @@ class LightGCN_MultiGraph(BaseRecModel):
 
         final_u = torch.stack(agg_u, dim=0).mean(dim=0)  # [n_u, d]
         final_i = torch.stack(agg_i, dim=0).mean(dim=0)  # [n_i, d]
+
+        if not self.training:
+            self._cache_u = final_u
+            self._cache_i = final_i
+
         return final_u, final_i
 
     # ------------------------------------------------------------------

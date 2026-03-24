@@ -48,6 +48,9 @@ BATCH_SIZE   = 1024
 VT_NUM_NEG   = 10
 U_VEC_SIZE   = 64
 N_GNN_LAYERS = 2        # LightGCN propagation depth
+MIN_COMMON   = 3        # min shared items for a user-user edge; keeps graph sparse
+                        # insurance has 21 items — min_common<3 creates a nearly
+                        # complete user-user graph (>24% dense) which is too large
 RANDOM_SEED  = 2020
 NUM_WORKER   = 0
 
@@ -88,6 +91,7 @@ def build_model(dp_dict, user_num, item_num, save_path):
         u_vector_size=U_VEC_SIZE,
         i_vector_size=U_VEC_SIZE,
         n_gnn_layers=N_GNN_LAYERS,
+        min_common=MIN_COMMON,
         random_seed=RANDOM_SEED,
         dropout=0.2,
         model_path=save_path,

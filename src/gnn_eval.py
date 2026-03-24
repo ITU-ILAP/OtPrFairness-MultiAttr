@@ -45,6 +45,7 @@ ALL_ATTRS    = ['u_gender', 'u_occupation', 'u_activity', 'u_marital_status']
 
 U_VEC_SIZE   = 64
 N_GNN_LAYERS = 2
+MIN_COMMON   = 3        # must match gnn_pcfr_train.py
 RANDOM_SEED  = 2020
 BATCH_SIZE   = 256
 VT_NUM_NEG   = 10
@@ -89,6 +90,7 @@ def load_model(ckpt_path, feature_cols):
         u_vector_size=U_VEC_SIZE,
         i_vector_size=U_VEC_SIZE,
         n_gnn_layers=N_GNN_LAYERS,
+        min_common=MIN_COMMON,
         random_seed=RANDOM_SEED,
         dropout=0.0,
         model_path=ckpt_path,
