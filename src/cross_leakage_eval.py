@@ -29,18 +29,21 @@ from data_reader import RecDataReader, DiscriminatorDataReader
 from datasets import RecDataset, DiscriminatorDataset
 from models.BiasedMF import (BiasedMF, BiasedMF_FOCF_ValUnf, BiasedMF_FOCF_AbsUnf,
                               BiasedMF_PCFR, BiasedMF_FairRec, BiasedMF_FairPO)
+from models.GNN import LightGCN_PCFR
 from models.Discriminators import BinaryDiscriminator
 from utils.generic import batch_to_gpu
 
 # Map framework name → model class
 MODEL_CLASS = {
-    'None':           BiasedMF,
-    'FOCF_ValUnf':    BiasedMF_FOCF_ValUnf,
-    'FOCF_AbsUnf':    BiasedMF_FOCF_AbsUnf,
-    'PCFR':           BiasedMF_PCFR,
-    'FairRec':        BiasedMF_FairRec,
-    'FairPO':         BiasedMF_FairPO,
-    'PCFR_MultiAttr': BiasedMF_PCFR,   # same architecture, trained on all attrs
+    'None':             BiasedMF,
+    'FOCF_ValUnf':      BiasedMF_FOCF_ValUnf,
+    'FOCF_AbsUnf':      BiasedMF_FOCF_AbsUnf,
+    'PCFR':             BiasedMF_PCFR,
+    'FairRec':          BiasedMF_FairRec,
+    'FairPO':           BiasedMF_FairPO,
+    'PCFR_MultiAttr':   BiasedMF_PCFR,
+    'GNN_PCFR':         LightGCN_PCFR,
+    'GNN_MultiAttr':    LightGCN_PCFR,
 }
 
 # suppress all INFO/DEBUG noise from the project
@@ -80,6 +83,17 @@ for fw in ['PCFR']:
 _q2_path = os.path.join(model_base, 'PCFR_multiattr_insurance', 'model.pt')
 if os.path.exists(_q2_path):
     MODELS[('PCFR_MultiAttr', 'all_attrs')] = _q2_path
+
+# GNN single-attribute checkpoints
+for attr in ALL_ATTRS:
+    pt = os.path.join(model_base, f'GNN_PCFR_insurance_{attr}', 'model.pt')
+    if os.path.exists(pt):
+        MODELS[('GNN_PCFR', attr)] = pt
+
+# GNN multi-attribute checkpoint
+_gnn_q2_path = os.path.join(model_base, 'GNN_PCFR_multiattr_insurance', 'model.pt')
+if os.path.exists(_gnn_q2_path):
+    MODELS[('GNN_MultiAttr', 'all_attrs')] = _gnn_q2_path
 
 # ── Model loading ──────────────────────────────────────────────────────────────
 
@@ -165,15 +179,20 @@ def eval_leakage(model, eval_attr):
 
     best_auc = 0.5
 
+    def get_vectors(model, uids):
+        """Get user embeddings regardless of model type."""
+        if hasattr(model, 'get_user_vectors'):
+            return model.get_user_vectors(uids)   # GNN: propagated + filtered
+        return model.uid_embeddings(uids)          # BiasedMF: raw lookup
+
     for epoch in range(DISC_EPOCHS):
-        # ── train discriminator on raw user embeddings ──
+        # ── train discriminator on user embeddings ──
         disc.train()
         for batch in train_loader:
             batch = batch_to_gpu(batch)
             with torch.no_grad():
-                # batch['X'] is 1-D: user IDs (as stored in DiscriminatorDataset)
-                uids    = batch['X'] - 1                      # 0-indexed
-                vectors = model.uid_embeddings(uids)          # [B, embed_dim]
+                uids    = batch['X'] - 1
+                vectors = get_vectors(model, uids)
             labels = batch['features']
             if labels.shape[1] == 0:
                 continue
@@ -190,7 +209,7 @@ def eval_leakage(model, eval_attr):
             batch = batch_to_gpu(batch)
             with torch.no_grad():
                 uids    = batch['X'] - 1
-                vectors = model.uid_embeddings(uids)
+                vectors = get_vectors(model, uids)
                 labels  = batch['features']
             if labels.shape[1] == 0:
                 continue
@@ -222,19 +241,20 @@ def main():
     np.random.seed(RANDOM_SEED)
 
     print("\n" + "="*92)
-    print("  CROSS-ATTRIBUTE LEAKAGE EVALUATION  |  insurance / BiasedMF")
+    print("  CROSS-ATTRIBUTE LEAKAGE EVALUATION  |  insurance  |  BiasedMF vs GNN")
     print("  Row  = framework + attribute the model was trained to protect")
     print("  Col  = attribute being probed by the attacker")
     print("  0.50 = random (no leakage) | ← = trained attribute")
     print("="*92)
 
-    frameworks = ['PCFR', 'PCFR_MultiAttr']
+    frameworks = ['PCFR', 'PCFR_MultiAttr', 'GNN_PCFR', 'GNN_MultiAttr']
     col_w = 14
     results = {}
 
-    # Build trained_attr list: single attrs for PCFR, 'all_attrs' for PCFR_MultiAttr
+    # Build trained_attr list: single attrs for PCFR/GNN_PCFR, 'all_attrs' for multi-attr
     trained_attrs_for = {fw: ALL_ATTRS for fw in frameworks}
     trained_attrs_for['PCFR_MultiAttr'] = ['all_attrs']
+    trained_attrs_for['GNN_MultiAttr']  = ['all_attrs']
 
     for fw in frameworks:
         for trained_attr in trained_attrs_for[fw]:

@@ -23,6 +23,7 @@ from data_reader import RecDataReader
 from datasets import RecDataset
 from models.BiasedMF import (BiasedMF, BiasedMF_PCFR, BiasedMF_FairRec,
                               BiasedMF_FairPO, BiasedMF_FOCF_AbsUnf, BiasedMF_FOCF_ValUnf)
+from models.GNN import LightGCN_PCFR
 from utils.generic import batch_to_gpu
 from utils.constants import LABEL, USER, ITEM
 from utils.metrics import ndcg_at_k, value_unfairness, user_oriented_unfairness
@@ -50,6 +51,9 @@ MODELS = [
     ('FairRec',         'cmp_BiasedMF_FairRec_insurance_u_gender/model.pt',       BiasedMF_FairRec),
     ('FairPO',          'cmp_BiasedMF_FairPO_insurance_u_gender/model.pt',        BiasedMF_FairPO),
     ('PCFR_MultiAttr',  'PCFR_multiattr_insurance/model.pt',                      BiasedMF_PCFR),
+    # ── GNN backbone ──────────────────────────────────────────────────────────
+    ('GNN_PCFR',        'GNN_PCFR_insurance_u_gender/model.pt',                   LightGCN_PCFR),
+    ('GNN_MultiAttr',   'GNN_PCFR_multiattr_insurance/model.pt',                  LightGCN_PCFR),
 ]
 
 

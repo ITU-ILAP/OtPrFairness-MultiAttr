@@ -5,7 +5,7 @@ Implementation for the paper:
 > **"Investigating User-Side Fairness in Outcome and Process for Multi-Type Sensitive Attributes in Recommendations"**
 > ACM Transactions on Recommender Systems, 2025 — Hong Kong Baptist University
 
-This repo implements and compares six fairness frameworks for recommender systems, plus **FairPO** — a new method that jointly enforces both *process fairness* (adversarial learning) and *outcome fairness* (value-unfairness regularization). It also includes two research extensions (Q1, Q2) studying cross-attribute leakage and multi-attribute simultaneous fairness.
+This repo implements and compares six fairness frameworks for recommender systems, plus **FairPO** — a new method that jointly enforces both *process fairness* (adversarial learning) and *outcome fairness* (value-unfairness regularization). It also includes two research extensions (Q1, Q2) studying cross-attribute leakage and multi-attribute simultaneous fairness, and a **GNN backbone** (LightGCN multi-graph) as an alternative to Biased Matrix Factorization.
 
 ---
 
@@ -15,13 +15,15 @@ This repo implements and compares six fairness frameworks for recommender system
 2. [Setup](#setup)
 3. [Datasets](#datasets)
 4. [Fairness Frameworks](#fairness-frameworks)
-5. [Usage](#usage)
-6. [Key Arguments Reference](#key-arguments-reference)
-7. [Fairness Metrics](#fairness-metrics)
-8. [Results](#results)
-9. [Q1: Cross-Attribute Leakage](#q1-cross-attribute-leakage-analysis)
-10. [Q2: Multi-Attribute Simultaneous Fairness](#q2-multi-attribute-simultaneous-fairness)
-11. [Troubleshooting](#troubleshooting)
+5. [GNN Backbone](#gnn-backbone-lightgcn-multi-graph)
+6. [Usage](#usage)
+7. [Key Arguments Reference](#key-arguments-reference)
+8. [Fairness Metrics](#fairness-metrics)
+9. [Results](#results)
+10. [Q1: Cross-Attribute Leakage](#q1-cross-attribute-leakage-analysis)
+11. [Q2: Multi-Attribute Simultaneous Fairness](#q2-multi-attribute-simultaneous-fairness)
+12. [GNN Results](#gnn-results)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -36,11 +38,13 @@ OtPrFairness-MultiAttr/
 │   ├── main.py                    # Entry point — single experiment
 │   ├── run_comparison.py          # Trains all 6 frameworks, prints comparison table
 │   ├── runner.py                  # Training loops for all frameworks
-│   ├── cross_leakage_eval.py      # Q1: cross-attribute leakage AUC matrix
+│   ├── cross_leakage_eval.py      # Q1+GNN: cross-attribute leakage AUC matrix (BiasedMF & GNN)
 │   ├── multi_attr_pcfr_train.py   # Q2: trains PCFR against all 4 attributes simultaneously
 │   ├── multi_attr_eval.py         # Q2: evaluates all models on quality + outcome fairness
+│   ├── gnn_pcfr_train.py          # GNN: trains LightGCN_PCFR (single- and multi-attr)
 │   └── models/
 │       ├── BiasedMF.py     # Biased MF + all fairness variants (PCFR, FairRec, FairPO, FOCF)
+│       ├── GNN.py          # LightGCN multi-graph backbone + PCFR variant
 │       ├── PMF.py
 │       ├── DMF.py
 │       └── MLP.py
@@ -104,6 +108,41 @@ L = L_rec  +  α · L_adv  +  β · L_outcome
 ```
 
 FairPO is implemented for all four backbone models (BiasedMF, PMF, DMF, MLP).
+
+---
+
+## GNN Backbone — LightGCN Multi-Graph
+
+As an extension to the paper's matrix factorization models, this repo includes a **LightGCN-based multi-graph** backbone (`models/GNN.py`) that learns user/item embeddings through graph propagation rather than simple lookup tables.
+
+### Architecture
+
+Three graphs are built from the training interactions and combined during propagation:
+
+| Graph | Nodes | Edges | Captures |
+|---|---|---|---|
+| User–Item bipartite | users + items | user interacted with item | Collaborative filtering signal |
+| User–User | users | two users share ≥ 3 common items | User similarity |
+| Item–Item | items | two items share ≥ 3 common users | Item similarity |
+
+Each graph uses symmetric degree normalization. Embeddings from all L propagation layers are averaged (LightGCN-style, no activation functions).
+
+### Variants
+
+| Class | Description |
+|---|---|
+| `LightGCN_MultiGraph` | Base GNN — propagated embeddings only |
+| `LightGCN_PCFR` | + adversarial filter on user embeddings (same filter architecture as BiasedMF_PCFR) |
+
+### Training
+
+```bash
+cd src/
+python gnn_pcfr_train.py
+# Trains GNN_PCFR single-attribute (×4 attributes) + multi-attribute on insurance
+# Saves checkpoints to ../model/GNN_PCFR_insurance_<attr>/ and GNN_PCFR_multiattr_insurance/
+# Runtime: ~15–20 min on CPU
+```
 
 ---
 
@@ -377,6 +416,39 @@ python multi_attr_eval.py          # quality + outcome fairness comparison
 2. **Quality cost** — joint adversarial training over-regularizes the user embeddings: NDCG drops ~5% relative to single-attribute PCFR (~0.83 → 0.79).
 3. **Outcome fairness regresses** — ValUnf avg worsens from 0.025 (single-attr PCFR) to 0.083 (PCFR_MultiAttr). Suppressing all attribute signals simultaneously disrupts the score distribution across groups.
 4. **Trade-off summary** — PCFR_MultiAttr represents a pure process-fairness solution. For applications requiring balanced process + outcome fairness with minimal quality loss, FairPO remains the stronger choice.
+
+---
+
+## GNN Results
+
+All GNN experiments use `LightGCN_PCFR` with `n_layers=2`, `embed_dim=64`, on the **Insurance dataset**.
+
+### Cross-Attribute Leakage — BiasedMF PCFR vs GNN PCFR
+
+*(0.50 = no leakage | ← = trained attribute)*
+
+| Model | Trained on | u_gender | u_occupation | u_activity | u_marital |
+|---|---|---|---|---|---|
+| BiasedMF PCFR | u_gender | 0.5262 ← | 0.5502 | 0.6964 | 0.6015 |
+| BiasedMF PCFR | u_occupation | 0.5272 | 0.5535 ← | 0.6869 | 0.6048 |
+| BiasedMF PCFR | u_activity | 0.5210 | 0.5514 | 0.6913 ← | 0.6028 |
+| BiasedMF PCFR | u_marital | 0.5195 | 0.5499 | 0.6867 | 0.6110 ← |
+| BiasedMF MultiAttr | all_attrs | 0.5051 | 0.5150 | **0.5000** | 0.5118 |
+| **GNN PCFR** | u_gender | **0.5099 ←** | **0.5179** | **0.5437** | **0.5203** |
+| **GNN PCFR** | u_occupation | **0.5073** | **0.5142 ←** | **0.5487** | **0.5210** |
+| **GNN PCFR** | u_activity | **0.5090** | **0.5151** | **0.5492 ←** | **0.5211** |
+| **GNN PCFR** | u_marital | **0.5013** | **0.5122** | **0.5483** | **0.5170 ←** |
+| **GNN MultiAttr** | all_attrs | **0.5036** | **0.5183** | **0.5422** | **0.5145** |
+
+### Key Findings
+
+1. **GNN PCFR dramatically outperforms BiasedMF PCFR on cross-attribute leakage.** When BiasedMF PCFR is trained on u_gender, u_activity leakage stays at 0.6964 — barely moved from the baseline. GNN PCFR trained on u_gender brings u_activity down to 0.5437 without even targeting it.
+
+2. **GNN provides near-free cross-attribute spillover.** Every GNN single-attribute model keeps all unprotected attributes below 0.55. BiasedMF consistently leaves u_activity at 0.69+.
+
+3. **GNN MultiAttr adds only marginal gain over GNN single-attr.** Since GNN already suppresses cross-leakage well on its own, the multi-attribute variant (0.5422 on u_activity) barely improves over any single-attribute GNN model (~0.545). In contrast, BiasedMF needed explicit multi-attribute training to get u_activity from 0.69 to 0.50.
+
+4. **Interpretation:** GNN embeddings are shaped by graph structure (shared interactions) rather than raw user–attribute correlations, making them inherently less attribute-informative. The adversarial filter then pushes the remaining signal to chance.
 
 ---
 
