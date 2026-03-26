@@ -464,10 +464,14 @@ On **Insurance**, GNN PCFR matches BiasedMF PCFR quality (0.833 vs 0.832) while 
 |---|---|---|---|---|---|
 | BiasedMF None *(ref)* | — | 0.5452 | 0.5438 | 0.8764 | 0.6653 |
 | BiasedMF PCFR | u_gender | 0.5262 ← | 0.5502 | 0.6964 | 0.6015 |
+| BiasedMF PCFR | u_occupation | 0.5272 | 0.5535 ← | 0.6869 | 0.6048 |
 | BiasedMF PCFR | u_activity | 0.5210 | 0.5514 | 0.6913 ← | 0.6028 |
+| BiasedMF PCFR | u_marital | 0.5195 | 0.5499 | 0.6867 | 0.6110 ← |
 | BiasedMF PCFR Multi | all_attrs | 0.5051 | 0.5150 | **0.5000** | 0.5118 |
 | **GNN PCFR** | u_gender | **0.5099 ←** | **0.5179** | **0.5437** | **0.5203** |
+| **GNN PCFR** | u_occupation | **0.5073** | **0.5142 ←** | **0.5487** | **0.5210** |
 | **GNN PCFR** | u_activity | **0.5090** | **0.5151** | **0.5492 ←** | **0.5211** |
+| **GNN PCFR** | u_marital | **0.5013** | **0.5122** | **0.5483** | **0.5170 ←** |
 | **GNN PCFR Multi** | all_attrs | **0.5036** | **0.5183** | **0.5422** | **0.5145** |
 
 On insurance, **GNN PCFR wins decisively**. A single-attribute GNN model trained only on u_gender already suppresses u_activity leakage to 0.54 — something BiasedMF couldn't achieve even with explicit multi-attribute training (0.69). BiasedMF needed a dedicated multi-attr model to reach 0.50; GNN gets there with any single-attr model.
@@ -477,10 +481,15 @@ On insurance, **GNN PCFR wins decisively**. A single-attribute GNN model trained
 | Model | Trained on | u_gender | u_age | u_occupation | u_activity |
 |---|---|---|---|---|---|
 | BiasedMF None *(ref)* | — | 0.7801 | 0.8573 | 0.7978 | 0.8978 |
-| BiasedMF PCFR | u_gender | **0.5183 ←** | **0.5473** | **0.5950** | **0.6926** |
-| BiasedMF PCFR Multi | all_attrs | **0.5183** | **0.5473** | **0.5950** | **0.6926** |
+| BiasedMF PCFR | u_gender | **0.5183 ←** | 0.5473 | 0.5950 | 0.6926 |
+| BiasedMF PCFR | u_age | 0.5183 | **0.5473 ←** | 0.5950 | 0.6926 |
+| BiasedMF PCFR | u_occupation | 0.5092 | 0.5295 | **0.5940 ←** | 0.6759 |
+| BiasedMF PCFR | u_activity | 0.5183 | 0.5473 | 0.5950 | **0.6926 ←** |
+| BiasedMF PCFR Multi | all_attrs | 0.5183 | 0.5473 | 0.5950 | 0.6926 |
 | GNN None *(ref)* | — | 0.5309 | 0.6784 | 0.7345 | 0.9110 |
 | GNN PCFR | u_gender | 0.5999 ← | 0.7002 | 0.7123 | 0.9162 |
+| GNN PCFR | u_age | 0.6276 | 0.7118 ← | 0.7106 | 0.8912 |
+| GNN PCFR | u_occupation | 0.6024 | 0.6930 | 0.7082 ← | 0.9072 |
 | GNN PCFR | u_activity | 0.5932 | 0.6853 | 0.6957 | 0.9077 ← |
 | GNN PCFR Multi | all_attrs | 0.6633 | 0.7454 | 0.7048 | 0.9137 |
 
