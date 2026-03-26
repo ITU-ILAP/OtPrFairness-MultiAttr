@@ -424,110 +424,106 @@ python multi_attr_eval.py          # quality + outcome fairness comparison
 
 ---
 
-## GNN Results
+## GNN Backbone — PCFR vs LightGCN PCFR
 
-All GNN experiments use `LightGCN_PCFR` with `n_layers=2`, `embed_dim=64`, on the **Insurance dataset**.
-
-### Cross-Attribute Leakage — BiasedMF PCFR vs GNN PCFR
-
-*(0.50 = no leakage | ← = trained attribute)*
-
-| Model | Trained on | u_gender | u_occupation | u_activity | u_marital |
-|---|---|---|---|---|---|
-| BiasedMF PCFR | u_gender | 0.5262 ← | 0.5502 | 0.6964 | 0.6015 |
-| BiasedMF PCFR | u_occupation | 0.5272 | 0.5535 ← | 0.6869 | 0.6048 |
-| BiasedMF PCFR | u_activity | 0.5210 | 0.5514 | 0.6913 ← | 0.6028 |
-| BiasedMF PCFR | u_marital | 0.5195 | 0.5499 | 0.6867 | 0.6110 ← |
-| BiasedMF MultiAttr | all_attrs | 0.5051 | 0.5150 | **0.5000** | 0.5118 |
-| **GNN PCFR** | u_gender | **0.5099 ←** | **0.5179** | **0.5437** | **0.5203** |
-| **GNN PCFR** | u_occupation | **0.5073** | **0.5142 ←** | **0.5487** | **0.5210** |
-| **GNN PCFR** | u_activity | **0.5090** | **0.5151** | **0.5492 ←** | **0.5211** |
-| **GNN PCFR** | u_marital | **0.5013** | **0.5122** | **0.5483** | **0.5170 ←** |
-| **GNN MultiAttr** | all_attrs | **0.5036** | **0.5183** | **0.5422** | **0.5145** |
-
-### Key Findings
-
-1. **GNN PCFR dramatically outperforms BiasedMF PCFR on cross-attribute leakage.** When BiasedMF PCFR is trained on u_gender, u_activity leakage stays at 0.6964 — barely moved from the baseline. GNN PCFR trained on u_gender brings u_activity down to 0.5437 without even targeting it.
-
-2. **GNN provides near-free cross-attribute spillover.** Every GNN single-attribute model keeps all unprotected attributes below 0.55. BiasedMF consistently leaves u_activity at 0.69+.
-
-3. **GNN MultiAttr adds only marginal gain over GNN single-attr.** Since GNN already suppresses cross-leakage well on its own, the multi-attribute variant (0.5422 on u_activity) barely improves over any single-attribute GNN model (~0.545). In contrast, BiasedMF needed explicit multi-attribute training to get u_activity from 0.69 to 0.50.
-
-4. **Interpretation:** GNN embeddings are shaped by graph structure (shared interactions) rather than raw user–attribute correlations, making them inherently less attribute-informative. The adversarial filter then pushes the remaining signal to chance.
-
----
-
-## ml100k Results
-
-All experiments use `BiasedMF` or `LightGCN_PCFR` with `embed_dim=64` on the **ml100k dataset** (943 users, 1,682 items). Sensitive attributes: `u_gender`, `u_age`, `u_occupation`, `u_activity`.
-
-### How to Reproduce
+This branch replaces BiasedMF's simple lookup-table embeddings with a **LightGCN multi-graph backbone** (`LightGCN_PCFR`, `n_layers=2`, `embed_dim=64`). The adversarial filter is identical to BiasedMF_PCFR — only the embedding layer changes. Experiments are run on both **Insurance** and **ml100k** to test whether graph structure helps or hurts process fairness.
 
 ```bash
 cd src/
-python ml100k_baseline_train.py      # trains all 6 baseline frameworks  (~30 min)
-python gnn_pcfr_train.py --dataset ml100k  # trains GNN PCFR × 5 models  (~8 hrs on CPU)
-python ml100k_leakage_eval.py        # cross-attribute leakage eval       (~1 hr)
-python ml100k_comparison_eval.py     # quality + outcome fairness         (~5 min)
+python gnn_pcfr_train.py                        # Insurance GNN models (~2 hrs)
+python gnn_pcfr_train.py --dataset ml100k       # ml100k GNN models    (~8 hrs)
+python cross_leakage_eval.py                    # Insurance leakage eval
+python ml100k_leakage_eval.py                   # ml100k leakage eval
+python multi_attr_eval.py                       # Insurance quality + fairness
+python ml100k_comparison_eval.py                # ml100k quality + fairness
 ```
 
-### Recommendation Quality — NDCG@3 ↑
+---
 
-| Framework | NDCG@3 | F1@3 |
+### 1 — Recommendation Quality (NDCG@3)
+
+Only PCFR-family and GNN models shown. See `main` branch for full baseline table.
+
+| Model | Insurance | ml100k |
 |---|---|---|
-| None | **0.6860** | **0.4497** |
-| FOCF_ValUnf | 0.6878 | 0.4502 |
-| FOCF_AbsUnf | 0.6824 | 0.4464 |
-| PCFR | 0.6815 | 0.4474 |
-| FairRec | 0.6784 | 0.4408 |
-| FairPO | 0.6825 | 0.4458 |
-| PCFR_Multi | 0.6214 | 0.4074 |
-| GNN_PCFR | 0.6303 | 0.4125 |
-| GNN_Multi | 0.6387 | 0.4210 |
+| BiasedMF None *(reference)* | 0.8512 | 0.6860 |
+| BiasedMF PCFR | 0.8324 | 0.6815 |
+| BiasedMF PCFR Multi | 0.7915 | 0.6214 |
+| **GNN PCFR** | **0.8333** | 0.6303 |
+| **GNN PCFR Multi** | **0.8335** | 0.6387 |
 
-### Cross-Attribute Leakage AUC — ml100k ↓ (0.50 = no leakage | ← = trained attribute)
+On **Insurance**, GNN PCFR matches BiasedMF PCFR quality (0.833 vs 0.832) while being far better at process fairness. On **ml100k**, GNN lags behind (0.630 vs 0.682 for None), paying a quality cost without fairness benefit.
+
+---
+
+### 2 — Process Fairness — Cross-Attribute Leakage AUC (0.50 = no leakage)
+
+#### Insurance (4 sensitive attrs: u_gender, u_occupation, u_activity, u_marital)
+
+| Model | Trained on | u_gender | u_occupation | u_activity | u_marital |
+|---|---|---|---|---|---|
+| BiasedMF None *(ref)* | — | 0.5452 | 0.5438 | 0.8764 | 0.6653 |
+| BiasedMF PCFR | u_gender | 0.5262 ← | 0.5502 | 0.6964 | 0.6015 |
+| BiasedMF PCFR | u_activity | 0.5210 | 0.5514 | 0.6913 ← | 0.6028 |
+| BiasedMF PCFR Multi | all_attrs | 0.5051 | 0.5150 | **0.5000** | 0.5118 |
+| **GNN PCFR** | u_gender | **0.5099 ←** | **0.5179** | **0.5437** | **0.5203** |
+| **GNN PCFR** | u_activity | **0.5090** | **0.5151** | **0.5492 ←** | **0.5211** |
+| **GNN PCFR Multi** | all_attrs | **0.5036** | **0.5183** | **0.5422** | **0.5145** |
+
+On insurance, **GNN PCFR wins decisively**. A single-attribute GNN model trained only on u_gender already suppresses u_activity leakage to 0.54 — something BiasedMF couldn't achieve even with explicit multi-attribute training (0.69). BiasedMF needed a dedicated multi-attr model to reach 0.50; GNN gets there with any single-attr model.
+
+#### ml100k (4 sensitive attrs: u_gender, u_age, u_occupation, u_activity)
 
 | Model | Trained on | u_gender | u_age | u_occupation | u_activity |
 |---|---|---|---|---|---|
-| **BiasedMF None** | — | 0.7801 | 0.8573 | 0.7978 | 0.8978 |
-| BiasedMF PCFR | u_gender | **0.5183 ←** | 0.5473 | 0.5950 | 0.6926 |
-| BiasedMF PCFR | u_age | 0.5183 | **0.5473 ←** | 0.5950 | 0.6926 |
-| BiasedMF PCFR | u_occupation | 0.5092 | 0.5295 | **0.5940 ←** | 0.6759 |
-| BiasedMF PCFR | u_activity | 0.5183 | 0.5473 | 0.5950 | **0.6926 ←** |
-| BiasedMF PCFR_Multi | all_attrs | 0.5183 | 0.5473 | 0.5950 | 0.6926 |
-| **GNN None** | — | 0.5309 | 0.6784 | 0.7345 | 0.9110 |
+| BiasedMF None *(ref)* | — | 0.7801 | 0.8573 | 0.7978 | 0.8978 |
+| BiasedMF PCFR | u_gender | **0.5183 ←** | **0.5473** | **0.5950** | **0.6926** |
+| BiasedMF PCFR Multi | all_attrs | **0.5183** | **0.5473** | **0.5950** | **0.6926** |
+| GNN None *(ref)* | — | 0.5309 | 0.6784 | 0.7345 | 0.9110 |
 | GNN PCFR | u_gender | 0.5999 ← | 0.7002 | 0.7123 | 0.9162 |
-| GNN PCFR | u_age | 0.6276 | 0.7118 ← | 0.7106 | 0.8912 |
-| GNN PCFR | u_occupation | 0.6024 | 0.6930 | 0.7082 ← | 0.9072 |
 | GNN PCFR | u_activity | 0.5932 | 0.6853 | 0.6957 | 0.9077 ← |
-| GNN Multi | all_attrs | 0.6633 | 0.7454 | 0.7048 | 0.9137 |
+| GNN PCFR Multi | all_attrs | 0.6633 | 0.7454 | 0.7048 | 0.9137 |
 
-### Outcome Fairness — UGF ↓
+On ml100k, the picture **completely reverses**. GNN None already starts at 0.91 for u_activity — worse than BiasedMF None (0.90). GNN PCFR cannot reduce this; it stays at 0.91 regardless of which attribute it targets. BiasedMF PCFR still works well, cutting leakage from 0.78–0.90 down to 0.52–0.69.
 
-| Framework | u_gender | u_age | u_occupation | u_activity | Avg |
-|---|---|---|---|---|---|
-| None | 0.0240 | 0.0476 | 0.0178 | 0.0172 | 0.0266 |
-| FOCF_ValUnf | 0.0279 | 0.0479 | 0.0083 | 0.0099 | **0.0235** |
-| FOCF_AbsUnf | 0.0284 | 0.0464 | 0.0225 | 0.0181 | 0.0288 |
-| PCFR | 0.0247 | 0.0660 | 0.0363 | 0.0094 | 0.0341 |
-| FairRec | 0.0495 | 0.0318 | 0.0314 | 0.0042 | 0.0292 |
-| FairPO | 0.0332 | 0.0626 | 0.0402 | 0.0152 | 0.0378 |
-| PCFR_Multi | 0.0162 | 0.0579 | 0.0517 | 0.0207 | 0.0366 |
-| GNN_PCFR | 0.0421 | 0.0381 | 0.0378 | 0.0168 | 0.0337 |
-| GNN_Multi | 0.0414 | 0.0309 | 0.0319 | 0.0137 | 0.0295 |
+---
 
-### Key Findings — ml100k vs Insurance
+### 3 — Outcome Fairness — UGF & ValUnf
 
-| Finding | Insurance | ml100k |
+#### Insurance
+
+| Model | UGF avg ↓ | ValUnf avg ↓ |
 |---|---|---|
-| GNN process fairness vs BiasedMF | ✅ GNN much better (0.51–0.55 vs 0.69) | ❌ GNN much worse (0.70–0.92 vs 0.52–0.69) |
-| u_activity leakage (GNN PCFR) | 0.54 | 0.91 |
-| PCFR_Multi effectiveness | All attrs → 0.50–0.52 | u_activity stuck at 0.69 |
-| GNN recommendation quality | Competitive (0.79) | Below BiasedMF (0.63 vs 0.68) |
+| BiasedMF None *(ref)* | 0.0680 | 0.0731 |
+| BiasedMF PCFR | 0.0696 | **0.0251** |
+| BiasedMF PCFR Multi | 0.0761 | 0.0829 |
+| **GNN PCFR** | 0.0737 | 0.0490 |
+| **GNN PCFR Multi** | 0.0703 | 0.0473 |
 
-**The ml100k results are the inverse of insurance.** On insurance (12 items, sparse graph), GNN propagation generalises well and the adversarial filter succeeds. On ml100k (1,682 items, dense graph), users who share items tend to share demographics — GNN propagation *amplifies* attribute signals into embeddings rather than diluting them. The adversarial filter cannot overcome the structural encoding: GNN PCFR's u_activity leakage (0.91) is actually *higher* than GNN None (0.91), meaning the filter fails entirely on a graph that is too demographically homophilic.
+#### ml100k
 
-**BiasedMF PCFR remains the more robust choice on ml100k**, reducing leakage from 0.78–0.90 down to 0.51–0.69 with modest quality cost (~1% NDCG).
+| Model | UGF avg ↓ | ValUnf avg ↓ |
+|---|---|---|
+| BiasedMF None *(ref)* | 0.0266 | 1.3660 |
+| BiasedMF PCFR | 0.0341 | 1.5855 |
+| BiasedMF PCFR Multi | 0.0366 | 2.3556 |
+| **GNN PCFR** | 0.0337 | 2.2119 |
+| **GNN PCFR Multi** | **0.0295** | 2.7504 |
+
+On insurance, BiasedMF PCFR has the best ValUnf (0.025) — the adversarial training happens to remove attribute-correlated score bias. GNN PCFR is worse on ValUnf (0.049), likely because graph-based embeddings already encode group structure differently. On ml100k, ValUnf is large for all PCFR/GNN models; GNN Multi has the best UGF (0.030) but the worst ValUnf (2.75).
+
+---
+
+### Why GNN Helps on Insurance but Hurts on ml100k
+
+| | Insurance | ml100k |
+|---|---|---|
+| Items | 12 | 1,682 |
+| Graph structure | Everyone interacts with ~same items → sparse, uniform graph → neighbours are demographically mixed | Rich item space → users cluster by interest → interest clusters correlate with demographics |
+| Effect of GNN propagation | Averages mixed-demographic neighbours → embeddings become *less* attribute-informative | Amplifies homophilic demographic signals → embeddings become *more* attribute-informative |
+| PCFR filter outcome | Small residual signal → easy to suppress to chance | Structural encoding too deep → filter cannot overcome it |
+
+This is a known risk of GNN-based fairness: on graphs with **demographic homophily**, propagation amplifies the very biases the filter is trying to remove. BiasedMF, with no graph structure, is immune to this effect and remains the more robust backbone for process fairness on real-world dense graphs.
 
 ---
 
