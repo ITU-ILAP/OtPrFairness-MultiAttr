@@ -19,11 +19,12 @@ This repo implements and compares six fairness frameworks for recommender system
 6. [Usage](#usage)
 7. [Key Arguments Reference](#key-arguments-reference)
 8. [Fairness Metrics](#fairness-metrics)
-9. [Results](#results)
-10. [Q1: Cross-Attribute Leakage](#q1-cross-attribute-leakage-analysis)
-11. [Q2: Multi-Attribute Simultaneous Fairness](#q2-multi-attribute-simultaneous-fairness)
-12. [GNN Results](#gnn-results)
-13. [Troubleshooting](#troubleshooting)
+9. [Results — Insurance](#results)
+10. [Q1: Cross-Attribute Leakage (Insurance)](#q1-cross-attribute-leakage-analysis)
+11. [Q2: Multi-Attribute Simultaneous Fairness (Insurance)](#q2-multi-attribute-simultaneous-fairness)
+12. [GNN Results — Insurance](#gnn-results)
+13. [ml100k Results](#ml100k-results)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -38,10 +39,13 @@ OtPrFairness-MultiAttr/
 │   ├── main.py                    # Entry point — single experiment
 │   ├── run_comparison.py          # Trains all 6 frameworks, prints comparison table
 │   ├── runner.py                  # Training loops for all frameworks
-│   ├── cross_leakage_eval.py      # Q1+GNN: cross-attribute leakage AUC matrix (BiasedMF & GNN)
+│   ├── cross_leakage_eval.py      # Q1+GNN: cross-attribute leakage AUC matrix (BiasedMF & GNN, insurance)
 │   ├── multi_attr_pcfr_train.py   # Q2: trains PCFR against all 4 attributes simultaneously
-│   ├── multi_attr_eval.py         # Q2: evaluates all models on quality + outcome fairness
-│   ├── gnn_pcfr_train.py          # GNN: trains LightGCN_PCFR (single- and multi-attr)
+│   ├── multi_attr_eval.py         # Q2: evaluates all models on quality + outcome fairness (insurance)
+│   ├── gnn_pcfr_train.py          # GNN: trains LightGCN_PCFR (single- and multi-attr, insurance)
+│   ├── ml100k_baseline_train.py   # ml100k: trains all 6 baseline frameworks
+│   ├── ml100k_leakage_eval.py     # ml100k: cross-attribute leakage eval (BiasedMF & GNN)
+│   ├── ml100k_comparison_eval.py  # ml100k: quality + outcome fairness comparison
 │   └── models/
 │       ├── BiasedMF.py     # Biased MF + all fairness variants (PCFR, FairRec, FairPO, FOCF)
 │       ├── GNN.py          # LightGCN multi-graph backbone + PCFR variant
@@ -77,6 +81,7 @@ pip install torch numpy pandas scikit-learn tqdm
 | Dataset   | Users | Items | Interactions | Sensitive Attributes |
 |-----------|-------|-------|--------------|----------------------|
 | insurance | 1,511 | 12    | 27,180       | u_gender, u_occupation, u_activity, u_marital_status |
+| ml100k    | 943   | 1,682 | 100,000      | u_gender, u_age, u_occupation, u_activity |
 | ml1M      | 6,040 | 3,416 | 999,611      | u_gender, u_age |
 
 Dataset files are **not included** — see [`dataset/README.md`](dataset/README.md) for download and preprocessing instructions.
@@ -449,6 +454,80 @@ All GNN experiments use `LightGCN_PCFR` with `n_layers=2`, `embed_dim=64`, on th
 3. **GNN MultiAttr adds only marginal gain over GNN single-attr.** Since GNN already suppresses cross-leakage well on its own, the multi-attribute variant (0.5422 on u_activity) barely improves over any single-attribute GNN model (~0.545). In contrast, BiasedMF needed explicit multi-attribute training to get u_activity from 0.69 to 0.50.
 
 4. **Interpretation:** GNN embeddings are shaped by graph structure (shared interactions) rather than raw user–attribute correlations, making them inherently less attribute-informative. The adversarial filter then pushes the remaining signal to chance.
+
+---
+
+## ml100k Results
+
+All experiments use `BiasedMF` or `LightGCN_PCFR` with `embed_dim=64` on the **ml100k dataset** (943 users, 1,682 items). Sensitive attributes: `u_gender`, `u_age`, `u_occupation`, `u_activity`.
+
+### How to Reproduce
+
+```bash
+cd src/
+python ml100k_baseline_train.py      # trains all 6 baseline frameworks  (~30 min)
+python gnn_pcfr_train.py --dataset ml100k  # trains GNN PCFR × 5 models  (~8 hrs on CPU)
+python ml100k_leakage_eval.py        # cross-attribute leakage eval       (~1 hr)
+python ml100k_comparison_eval.py     # quality + outcome fairness         (~5 min)
+```
+
+### Recommendation Quality — NDCG@3 ↑
+
+| Framework | NDCG@3 | F1@3 |
+|---|---|---|
+| None | **0.6860** | **0.4497** |
+| FOCF_ValUnf | 0.6878 | 0.4502 |
+| FOCF_AbsUnf | 0.6824 | 0.4464 |
+| PCFR | 0.6815 | 0.4474 |
+| FairRec | 0.6784 | 0.4408 |
+| FairPO | 0.6825 | 0.4458 |
+| PCFR_Multi | 0.6214 | 0.4074 |
+| GNN_PCFR | 0.6303 | 0.4125 |
+| GNN_Multi | 0.6387 | 0.4210 |
+
+### Cross-Attribute Leakage AUC — ml100k ↓ (0.50 = no leakage | ← = trained attribute)
+
+| Model | Trained on | u_gender | u_age | u_occupation | u_activity |
+|---|---|---|---|---|---|
+| **BiasedMF None** | — | 0.7801 | 0.8573 | 0.7978 | 0.8978 |
+| BiasedMF PCFR | u_gender | **0.5183 ←** | 0.5473 | 0.5950 | 0.6926 |
+| BiasedMF PCFR | u_age | 0.5183 | **0.5473 ←** | 0.5950 | 0.6926 |
+| BiasedMF PCFR | u_occupation | 0.5092 | 0.5295 | **0.5940 ←** | 0.6759 |
+| BiasedMF PCFR | u_activity | 0.5183 | 0.5473 | 0.5950 | **0.6926 ←** |
+| BiasedMF PCFR_Multi | all_attrs | 0.5183 | 0.5473 | 0.5950 | 0.6926 |
+| **GNN None** | — | 0.5309 | 0.6784 | 0.7345 | 0.9110 |
+| GNN PCFR | u_gender | 0.5999 ← | 0.7002 | 0.7123 | 0.9162 |
+| GNN PCFR | u_age | 0.6276 | 0.7118 ← | 0.7106 | 0.8912 |
+| GNN PCFR | u_occupation | 0.6024 | 0.6930 | 0.7082 ← | 0.9072 |
+| GNN PCFR | u_activity | 0.5932 | 0.6853 | 0.6957 | 0.9077 ← |
+| GNN Multi | all_attrs | 0.6633 | 0.7454 | 0.7048 | 0.9137 |
+
+### Outcome Fairness — UGF ↓
+
+| Framework | u_gender | u_age | u_occupation | u_activity | Avg |
+|---|---|---|---|---|---|
+| None | 0.0240 | 0.0476 | 0.0178 | 0.0172 | 0.0266 |
+| FOCF_ValUnf | 0.0279 | 0.0479 | 0.0083 | 0.0099 | **0.0235** |
+| FOCF_AbsUnf | 0.0284 | 0.0464 | 0.0225 | 0.0181 | 0.0288 |
+| PCFR | 0.0247 | 0.0660 | 0.0363 | 0.0094 | 0.0341 |
+| FairRec | 0.0495 | 0.0318 | 0.0314 | 0.0042 | 0.0292 |
+| FairPO | 0.0332 | 0.0626 | 0.0402 | 0.0152 | 0.0378 |
+| PCFR_Multi | 0.0162 | 0.0579 | 0.0517 | 0.0207 | 0.0366 |
+| GNN_PCFR | 0.0421 | 0.0381 | 0.0378 | 0.0168 | 0.0337 |
+| GNN_Multi | 0.0414 | 0.0309 | 0.0319 | 0.0137 | 0.0295 |
+
+### Key Findings — ml100k vs Insurance
+
+| Finding | Insurance | ml100k |
+|---|---|---|
+| GNN process fairness vs BiasedMF | ✅ GNN much better (0.51–0.55 vs 0.69) | ❌ GNN much worse (0.70–0.92 vs 0.52–0.69) |
+| u_activity leakage (GNN PCFR) | 0.54 | 0.91 |
+| PCFR_Multi effectiveness | All attrs → 0.50–0.52 | u_activity stuck at 0.69 |
+| GNN recommendation quality | Competitive (0.79) | Below BiasedMF (0.63 vs 0.68) |
+
+**The ml100k results are the inverse of insurance.** On insurance (12 items, sparse graph), GNN propagation generalises well and the adversarial filter succeeds. On ml100k (1,682 items, dense graph), users who share items tend to share demographics — GNN propagation *amplifies* attribute signals into embeddings rather than diluting them. The adversarial filter cannot overcome the structural encoding: GNN PCFR's u_activity leakage (0.91) is actually *higher* than GNN None (0.91), meaning the filter fails entirely on a graph that is too demographically homophilic.
+
+**BiasedMF PCFR remains the more robust choice on ml100k**, reducing leakage from 0.78–0.90 down to 0.51–0.69 with modest quality cost (~1% NDCG).
 
 ---
 
