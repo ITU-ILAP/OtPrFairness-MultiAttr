@@ -26,9 +26,8 @@ env/
 # Jupyter notebooks checkpoints
 .ipynb_checkpoints/
 
-# Results (generated output)
+# Results (generated output — only raw log files, not markdown summaries)
 result/
-results/
 .claude/
 
 # All raw dataset files — download instructions are in dataset/README.md
