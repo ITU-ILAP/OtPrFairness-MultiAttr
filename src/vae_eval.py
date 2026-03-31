@@ -1,8 +1,8 @@
 # coding=utf-8
 """
-AutoEncoder Evaluation Script
+VAE Evaluation Script
 ================================
-Evaluates AutoEncoder (None, PCFR, PCFR_MultiAttr) on both insurance and ml100k
+Evaluates VAE (None, PCFR, PCFR_MultiAttr) on both insurance and ml100k
 across all three dimensions:
   1. Recommendation quality  (NDCG@3, F1@3)
   2. Outcome fairness        (UGF, ValUnf per attribute)
@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.ERROR)
 
 from data_reader import RecDataReader, DiscriminatorDataReader
 from datasets import RecDataset, DiscriminatorDataset
-from models.AutoEncoder import AutoEncoder, AutoEncoder_PCFR
+from models.VAE import VAE, VVAE_PCFR
 from models.Discriminators import BinaryDiscriminator
 from utils.generic import batch_to_gpu
 
@@ -41,8 +41,7 @@ DATASET_ATTRS = {
 DATA_PATH    = '../dataset/'
 MODEL_DIR    = '../model/'
 U_VEC_SIZE   = 64
-AE_HIDDEN    = 256
-AE_DROPOUT   = {'insurance': 0.0, 'ml100k': 0.5}
+VAE_HIDDEN    = 256
 BATCH_SIZE   = 512
 VT_NUM_NEG   = 100
 RANDOM_SEED  = 2020
@@ -64,12 +63,12 @@ def load_model(ckpt_path, dataset, feat_cols, with_filter):
     dp_dict  = {'train': train_dp, 'test': test_dp}
 
     torch.manual_seed(RANDOM_SEED)
-    cls   = AutoEncoder_PCFR if with_filter else AutoEncoder
+    cls   = VAE_PCFR if with_filter else VAE
     model = cls(data_processor_dict=dp_dict,
                 user_num=len(dr.user_ids_set),
                 item_num=len(dr.item_ids_set),
                 u_vector_size=U_VEC_SIZE, i_vector_size=U_VEC_SIZE,
-                ae_hidden=AE_HIDDEN, recon_weight=0.1, ae_dropout=AE_DROPOUT[dataset],
+                vae_hidden=VAE_HIDDEN, vae_beta=0.1,
                 random_seed=RANDOM_SEED, dropout=0.2, model_path=ckpt_path)
     state = torch.load(ckpt_path, map_location='cpu')
     model.load_state_dict(state)
@@ -232,25 +231,25 @@ def run_dataset(dataset, skip_leakage):
     # Models to evaluate: (label, ckpt_path, feat_cols, with_filter)
     models_to_eval = []
 
-    none_path = os.path.join(MODEL_DIR, f'AE_None_{dataset}', 'model.pt')
+    none_path = os.path.join(MODEL_DIR, f'VAE_None_{dataset}', 'model.pt')
     if os.path.exists(none_path):
-        models_to_eval.append(('AE_None', none_path, [ALL_ATTRS[0]], False))
+        models_to_eval.append(('VAE_None', none_path, [ALL_ATTRS[0]], False))
 
     for attr in ALL_ATTRS:
-        p = os.path.join(MODEL_DIR, f'AE_PCFR_{dataset}_{attr}', 'model.pt')
+        p = os.path.join(MODEL_DIR, f'VAE_PCFR_{dataset}_{attr}', 'model.pt')
         if os.path.exists(p):
-            models_to_eval.append((f'AE_PCFR/{attr}', p, [attr], True))
+            models_to_eval.append((f'VAE_PCFR/{attr}', p, [attr], True))
 
-    multi_path = os.path.join(MODEL_DIR, f'AE_PCFR_multiattr_{dataset}', 'model.pt')
+    multi_path = os.path.join(MODEL_DIR, f'VAE_PCFR_multiattr_{dataset}', 'model.pt')
     if os.path.exists(multi_path):
-        models_to_eval.append(('AE_PCFR_Multi', multi_path, ALL_ATTRS, True))
+        models_to_eval.append(('VAE_PCFR_Multi', multi_path, ALL_ATTRS, True))
 
     if not models_to_eval:
         print(f"  No checkpoints found for {dataset}. Run autoencoder_train.py first.")
         return
 
     print(f"\n{'='*80}")
-    print(f"  AutoEncoder Results  |  {dataset}")
+    print(f"  VAE Results  |  {dataset}")
     print(f"{'='*80}")
 
     # ── 1. Recommendation Quality ──────────────────────────────────────────
