@@ -42,6 +42,7 @@ DATA_PATH    = '../dataset/'
 MODEL_DIR    = '../model/'
 U_VEC_SIZE   = 64
 AE_HIDDEN    = 256
+AE_DROPOUT   = {'insurance': 0.0, 'ml100k': 0.5}
 BATCH_SIZE   = 512
 VT_NUM_NEG   = 100
 RANDOM_SEED  = 2020
@@ -68,7 +69,7 @@ def load_model(ckpt_path, dataset, feat_cols, with_filter):
                 user_num=len(dr.user_ids_set),
                 item_num=len(dr.item_ids_set),
                 u_vector_size=U_VEC_SIZE, i_vector_size=U_VEC_SIZE,
-                ae_hidden=AE_HIDDEN, recon_weight=0.1, ae_dropout=0.5,
+                ae_hidden=AE_HIDDEN, recon_weight=0.1, ae_dropout=AE_DROPOUT[dataset],
                 random_seed=RANDOM_SEED, dropout=0.2, model_path=ckpt_path)
     state = torch.load(ckpt_path, map_location='cpu')
     model.load_state_dict(state)

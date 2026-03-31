@@ -57,7 +57,12 @@ VT_NUM_NEG  = 10
 U_VEC_SIZE  = 64
 AE_HIDDEN   = 256
 RECON_WT    = 0.1
-AE_DROPOUT  = 0.5
+# Per-dataset input dropout: insurance is extremely sparse (~1 interaction/user)
+# so any dropout destroys the only signal. ml100k is denser (~60 interactions/user).
+AE_DROPOUT  = {
+    'insurance': 0.0,
+    'ml100k':    0.5,
+}
 RANDOM_SEED = 2020
 NUM_WORKER  = 0
 DISC_LR     = 1e-3
@@ -87,7 +92,7 @@ def evaluate_rec(model, loader):
     return hit / max(total, 1)
 
 
-def build_ae(dp_dict, user_num, item_num, save_path, with_filter=True):
+def build_ae(dp_dict, user_num, item_num, save_path, dataset, with_filter=True):
     torch.manual_seed(RANDOM_SEED)
     cls = AutoEncoder_PCFR if with_filter else AutoEncoder
     return cls(
@@ -98,7 +103,7 @@ def build_ae(dp_dict, user_num, item_num, save_path, with_filter=True):
         i_vector_size=U_VEC_SIZE,
         ae_hidden=AE_HIDDEN,
         recon_weight=RECON_WT,
-        ae_dropout=AE_DROPOUT,
+        ae_dropout=AE_DROPOUT[dataset],
         random_seed=RANDOM_SEED,
         dropout=0.2,
         model_path=save_path,
@@ -136,7 +141,7 @@ def train_none(dataset, save_path):
     dp_dict  = {'train': train_dp, 'valid': valid_dp}
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    model     = build_ae(dp_dict, user_num, item_num, save_path, with_filter=False)
+    model     = build_ae(dp_dict, user_num, item_num, save_path, dataset, with_filter=False)
     model_opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=L2)
 
     best_ndcg, best_epoch = -1.0, 0
@@ -190,7 +195,7 @@ def train_pcfr(dataset, attrs, save_path, label, active_mask):
     dp_dict  = {'train': train_dp, 'valid': valid_dp}
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    model     = build_ae(dp_dict, user_num, item_num, save_path, with_filter=True)
+    model     = build_ae(dp_dict, user_num, item_num, save_path, dataset, with_filter=True)
     model_opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=L2)
     discs, disc_opts = build_discs(dr.feature_info, os.path.dirname(save_path))
 
