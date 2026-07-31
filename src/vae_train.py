@@ -2,7 +2,7 @@
 """
 VAE-PCFR Training Script
 ==================================
-Trains VVAE_PCFR on both insurance and ml100k:
+Trains VAE_PCFR on both insurance and ml100k:
   • None baseline        (no adversarial training)
   • Single-attribute PCFR × 4 attributes per dataset  (Q1 checkpoints)
   • Multi-attribute PCFR on all 4 attributes at once   (Q2 checkpoint)
@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.ERROR)
 
 from data_reader import RecDataReader, DiscriminatorDataReader
 from datasets import RecDataset, DiscriminatorDataset
-from models.VAE import VAE, VVAE_PCFR
+from models.VAE import VAE, VAE_PCFR
 from models.Discriminators import BinaryDiscriminator
 from utils.generic import batch_to_gpu
 from utils.constants import LABEL
@@ -56,7 +56,7 @@ BATCH_SIZE  = 1024
 VT_NUM_NEG  = 10
 U_VEC_SIZE  = 64
 VAE_HIDDEN  = 256
-VAE_BETA    = 0.1
+VAE_BETA    = 0.001
 RANDOM_SEED = 2020
 NUM_WORKER  = 0
 DISC_LR     = 1e-3

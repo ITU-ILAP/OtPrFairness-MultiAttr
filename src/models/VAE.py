@@ -70,8 +70,12 @@ class VAE(BaseRecModel):
         self.fc_mu      = nn.Linear(h, d)
         self.fc_log_var = nn.Linear(h, d)
 
-        # Item lookup embedding (standard)
+        # Item lookup embedding (standard) — small init to keep predictions in range
         self.iid_embeddings = nn.Embedding(self.item_num, d)
+        nn.init.normal_(self.iid_embeddings.weight, mean=0.0, std=0.01)
+        for layer in [self.encoder_hidden[0], self.fc_mu, self.fc_log_var]:
+            nn.init.normal_(layer.weight, mean=0.0, std=0.01)
+            nn.init.zeros_(layer.bias)
 
     # ------------------------------------------------------------------
     # Build user profile matrix from training interactions
